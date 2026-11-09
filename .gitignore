@@ -1,0 +1,6 @@
+node_modules/
+contract/target/
+target/
+.env
+data/
+*.log

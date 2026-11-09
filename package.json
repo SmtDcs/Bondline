@@ -1,0 +1,23 @@
+{
+  "name": "claimable-bot-promises",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.22.2" },
+  "scripts": {
+    "build:contract": "cd contract && cargo near build non-reproducible-wasm --no-abi && mkdir -p res && cp target/near/bot_promises.wasm res/",
+    "test:contract": "cd contract && cargo test",
+    "test:js": "node --test \"app/test/*.test.mjs\"",
+    "test": "npm run test:js && npm run verify:fixtures",
+    "attest": "node app/scripts/attest.mjs",
+    "spike:s1": "node --env-file=.env app/scripts/spike-s1-live-signature.mjs",
+    "verify": "node app/verify.mjs",
+    "verify:fixtures": "node app/scripts/verify-fixtures.mjs",
+    "dev": "node --env-file=.env app/server.mjs",
+    "demo:replay": "MODE=replay node app/server.mjs"
+  },
+  "dependencies": {
+    "@nearai/inference-sdk": "0.3.0",
+    "express": "5.3.0",
+    "near-api-js": "7.4.0"
+  }
+}
