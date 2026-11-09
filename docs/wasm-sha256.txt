@@ -1,0 +1,1 @@
+c4d88ead840e3300356aba35072a8cd1ef897edaa3ce9d2ac2590326bd7d8941  contract/res/bot_promises.wasm
