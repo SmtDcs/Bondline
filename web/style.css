@@ -218,6 +218,9 @@ button:disabled {
 .badge.error { background: var(--error-bg); color: var(--error-ink); }
 .badge.simulated { background: var(--simulated-bg); color: var(--simulated-ink); }
 .badge.naive { background: #fef3c7; color: #92400e; }
+/* v2: a promise past its expiry, and the buyer-registration notice next to BINDING. */
+.badge.expired { background: #e5e7eb; color: #374151; }
+.badge.warning { background: #ffedd5; color: #9a3412; }
 
 .token {
   display: block;

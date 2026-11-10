@@ -1,3 +1,5 @@
+import { formatAmount } from './amount.js';
+
 let CFG;
 const $ = (id) => document.getElementById(id);
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -15,10 +17,37 @@ const BOND_REFRESH_MS = 10_000;
 const EDIT_FROM = 'bps=2000';
 const EDIT_TO = 'bps=3000';
 
-export async function rpcView(method, args) {
+/** v2 detected (get_config api:2). v1 keeps the old argument shapes and the NEAR-only display. */
+export const isV2 = () => CFG?.contract_api === 2;
+
+export function tokenMetaFor(tokenId, tokens = CFG?.tokens) {
+  if (!tokenId) return null;
+  return (tokens ?? []).find(t => t && t.id === tokenId) ?? null;
+}
+
+/** Raw units in the asset's display form: `4 tUSDC`, or the v1 NEAR display (3 decimals). */
+export function formatAsset(raw, tokenId, tokens = CFG?.tokens) {
+  const meta = tokenMetaFor(tokenId, tokens);
+  if (!meta) return `${yoctoToNear(raw ?? 0)} NEAR`;
+  return `${formatAmount(String(raw ?? 0), meta.decimals)} ${meta.symbol}`;
+}
+
+export function receiptArgs(responseHash) {
+  return isV2() ? { merchant: CFG.merchantId, response_hash: responseHash } : { response_hash: responseHash };
+}
+export function previewArgs(orderId, responseB64) {
+  return isV2() ? { merchant: CFG.merchantId, order_id: orderId, response_b64: responseB64 } : { order_id: orderId, response_b64: responseB64 };
+}
+
+/** The order entry from /api/config (token, expiry and amount are v2-only fields). */
+export function configOrder(orderId, orders = CFG?.orders) {
+  return (orders ?? []).find(o => o && o.order_id === orderId) ?? null;
+}
+
+export async function rpcView(method, args, contractId = CFG.contractId) {
   const json = JSON.stringify(args);
   const argsB64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
-  const body = { jsonrpc: '2.0', id: 'cbp', method: 'query', params: { request_type: 'call_function', finality: 'final', account_id: CFG.contractId, method_name: method, args_base64: argsB64 } };
+  const body = { jsonrpc: '2.0', id: 'cbp', method: 'query', params: { request_type: 'call_function', finality: 'final', account_id: contractId, method_name: method, args_base64: argsB64 } };
   const res = await fetch(CFG.rpcUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await res.json();
   if (j.error) throw new Error(JSON.stringify(j.error));
@@ -35,15 +64,45 @@ export const yoctoToNear = (y) => (Number(BigInt(y) / 10n ** 21n) / 1000).toFixe
 export async function bindingStatus(orderId, responseB64, recordedViews) {
   if (OFFLINE && recordedViews) return { receipt: recordedViews.get_receipt, preview: recordedViews.preview_claim };
   const hash = await sha256Hex(b64ToBytes(responseB64));
-  const receipt = await rpcView('get_receipt', { response_hash: hash });
-  const preview = await rpcView('preview_claim', { order_id: orderId, response_b64: responseB64 });
+  const receipt = await rpcView('get_receipt', receiptArgs(hash));
+  const preview = await rpcView('preview_claim', previewArgs(orderId, responseB64));
   return { hash, receipt, preview };
 }
-export function badgeText({ receipt, preview }) {
+
+/** Remaining time next to BINDING; `EXPIRED` at or after the deadline. */
+export function expiryCountdown(expiresAtMs, nowMs = Date.now()) {
+  const ms = Number(expiresAtMs) - Number(nowMs);
+  if (!Number.isFinite(ms) || ms <= 0) return 'EXPIRED';
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'expires in <1m';
+  if (minutes < 60) return `expires in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `expires in ${hours}h`;
+  return `expires in ${Math.floor(hours / 24)}d`;
+}
+
+/** A claim to an unregistered receiver fails safely; say so next to BINDING, never block the button. */
+export function buyerRegistrationNotice(token, accountId) {
+  if (!token) return null;
+  return `${accountId} is not registered on ${token.symbol}: register on ${token.symbol} first with the token's storage_deposit (the claim stays BINDING and can be retried)`;
+}
+
+/** The 502 body from the relayer after a failed payout (a successful tx with ok:false). */
+export function payoutFailedText(tokenId, tokens = CFG?.tokens) {
+  const meta = tokenMetaFor(tokenId, tokens);
+  return `ERR_PAYOUT_FAILED${meta ? ` · retry after registering on ${meta.symbol}` : ''}`;
+}
+
+export function badgeText({ receipt, preview, tokenId, expiresAtMs, nowMs }) {
   if (!receipt) return { cls: 'error', text: 'NOT A PROMISE (no receipt on chain)' };
-  if (!preview.ok) return { cls: 'error', text: preview.error };
+  if (!preview.ok) {
+    if (preview.error === 'ERR_ORDER_EXPIRED') return { cls: 'expired', text: 'EXPIRED' };
+    if (preview.error === 'ERR_PAYOUT_FAILED') return { cls: 'error', text: payoutFailedText(tokenId) };
+    return { cls: 'error', text: preview.error };
+  }
   const capped = preview.token_bps !== preview.paid_bps ? ` · token ${preview.token_bps / 100}% → paid ${preview.paid_bps / 100}% (cap)` : '';
-  return { cls: 'binding', text: `BINDING · claimable ${yoctoToNear(preview.payout.toString())} NEAR${capped}` };
+  const expiry = expiresAtMs != null ? ` · ${expiryCountdown(expiresAtMs, nowMs)}` : '';
+  return { cls: 'binding', text: `BINDING · claimable ${formatAsset(preview.payout.toString(), tokenId)}${capped}${expiry}` };
 }
 
 /** Reads GET /api/config into CFG. The url is overridable so node tests (and the
@@ -113,10 +172,15 @@ export async function loadReplayTranscript(url = '/fixtures/replay/transcript.js
 
 const NAIVE_LABEL = 'badly configured bot';
 
-/** PLAN R4: the naive (jailbroken) demo order must be labelled in the UI. */
-export function orderLabel(order) {
+/** PLAN R4: the naive (jailbroken) demo order must be labelled in the UI.
+ *  v2 orders also show their currency and total (`· 20 tUSDC`). */
+export function orderLabel(order, tokens = CFG?.tokens) {
   const base = order?.label ? `${order.order_id} · ${order.label}` : String(order?.order_id ?? '');
-  return order?.naive ? `${base} · ${NAIVE_LABEL}` : base;
+  const meta = tokenMetaFor(order?.token, tokens);
+  const amount = meta
+    ? (order?.amount != null ? ` · ${formatAmount(String(order.amount), meta.decimals)} ${meta.symbol}` : ` · ${meta.symbol}`)
+    : '';
+  return order?.naive ? `${base}${amount} · ${NAIVE_LABEL}` : `${base}${amount}`;
 }
 
 export function isNaiveOrder(orders, orderId) {
@@ -161,15 +225,43 @@ export function bondMeterFields(merchant) {
   ];
 }
 
-export function renderBondMeter(el, merchant) {
+/** v2: one 4-field group per asset (NEAR plus every token bond), formatted in that token. */
+export function bondMeterRows(merchant, bonds = [], tokens = []) {
+  const rows = [];
+  const add = (asset, m, meta) => {
+    const symbol = meta?.symbol ?? (asset === 'NEAR' ? 'NEAR' : asset);
+    const fmt = (raw) => (meta ? `${formatAmount(String(raw ?? 0), meta.decimals)} ${symbol}` : `${yoctoToNear(raw ?? 0)} NEAR`);
+    rows.push(
+      { label: `bond ${symbol}`, value: fmt(m?.bond) },
+      { label: `reserved ${symbol}`, value: fmt(m?.reserved) },
+      { label: `free ${symbol}`, value: fmt(BigInt(m?.bond ?? 0) - BigInt(m?.reserved ?? 0)) },
+      { label: `paid_out ${symbol}`, value: fmt(m?.paid_out) },
+    );
+  };
+  if (merchant) add('NEAR', merchant, null);
+  for (const b of bonds ?? []) {
+    if (!b || b.token == null) continue;
+    add(b.token, b, tokenMetaFor(b.token, tokens));
+  }
+  return rows;
+}
+
+export function renderBondMeter(el, merchant, extras = {}) {
   if (!el) return;
-  if (!merchant) {
+  if (!merchant && !(extras.bonds ?? []).length) {
     el.textContent = 'merchant not registered';
     return;
   }
-  el.replaceChildren(...bondMeterFields(merchant).flatMap(f => [
-    element('span', 'meter-label', f.label),
-    element('span', 'meter-value', `${f.near} NEAR`),
+  if (!extras.bonds) {
+    el.replaceChildren(...bondMeterFields(merchant).flatMap(f => [
+      element('span', 'meter-label', f.label),
+      element('span', 'meter-value', `${f.near} NEAR`),
+    ]));
+    return;
+  }
+  el.replaceChildren(...bondMeterRows(merchant, extras.bonds, extras.tokens).flatMap(r => [
+    element('span', 'meter-label', r.label),
+    element('span', 'meter-value', r.value),
   ]));
 }
 
@@ -183,7 +275,12 @@ export async function refreshBondMeter() {
     return merchant;
   }
   const merchant = await rpcView('get_merchant', { merchant: CFG.merchantId });
-  renderBondMeter($('bond-meter'), merchant);
+  if (isV2()) {
+    const bonds = await rpcView('get_bonds', { merchant: CFG.merchantId }).catch(() => []);
+    renderBondMeter($('bond-meter'), merchant, { bonds, tokens: CFG.tokens ?? [] });
+  } else {
+    renderBondMeter($('bond-meter'), merchant);
+  }
   return merchant;
 }
 
@@ -325,8 +422,9 @@ async function claim(row, btn) {
     const data = await res.json();
     if (!res.ok) {
       failed = true;
-      setBadge(row.statusBadge, { cls: 'error', text: data.error ?? `HTTP ${res.status}` });
-      showToast(data.error ?? `HTTP ${res.status}`, null, 'toast error');
+      const text = data.error === 'ERR_PAYOUT_FAILED' ? payoutFailedText(row.tokenId) : (data.error ?? `HTTP ${res.status}`);
+      setBadge(row.statusBadge, { cls: 'error', text });
+      showToast(text, null, 'toast error');
       return;
     }
     showToast(claimToastText(data.result.payout), data.explorer);
@@ -345,7 +443,7 @@ async function claim(row, btn) {
       } else {
         try {
           const views = await bindingStatus(row.orderId, bundle.response_b64, row.views);
-          setBadge(row.statusBadge, badgeText(views));
+          setBadge(row.statusBadge, badgeText({ ...views, tokenId: row.tokenId, expiresAtMs: row.expiresAtMs }));
         } catch (err) {
           setBadge(row.statusBadge, { cls: 'error', text: err.message });
         }
@@ -435,6 +533,9 @@ async function onSubmit(event) {
   const message = input.value.trim();
   if (!message) return;
   const orderId = $('order-select').value;
+  const orderCfg = configOrder(orderId);
+  const tokenId = orderCfg?.token ?? null;
+  const expiresAtMs = orderCfg?.expires_at_ms ?? null;
   const log = $('chat-log');
   log.append(messageRow('user', message));
   const bot = botMessage();
@@ -451,6 +552,8 @@ async function onSubmit(event) {
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
     bot.row.bundle = data.bundle;
     bot.row.orderId = orderId;
+    bot.row.tokenId = tokenId;
+    bot.row.expiresAtMs = expiresAtMs;
     bot.row.views = data.views; // T19 replay: the recorded views drive ?offline=1
     bot.bubble.bundle = data.bundle;
     // Show the text of the verified bytes (the ones BINDING hashes and claim uses), never the relayer's
@@ -466,9 +569,20 @@ async function onSubmit(event) {
     // T17: every bot bubble can be tampered with, whatever the BINDING check said.
     addTamper(bot.row);
     const views = await bindingStatus(orderId, data.bundle.response_b64, data.views);
-    const view = badgeText(views);
+    const view = badgeText({ ...views, tokenId, expiresAtMs });
     setBadge(bot.status, view);
-    if (view.cls === 'binding') addClaim(bot.row);
+    if (view.cls === 'binding') {
+      addClaim(bot.row);
+      // NEP-145: say it next to BINDING when the buyer has no storage on the token. Never block the claim:
+      // the contract cannot know, and a failed payout is safe (the order stays open for a retry).
+      if (tokenId && isV2()) {
+        const balance = await rpcView('storage_balance_of', { account_id: CFG.buyerId }, tokenId).catch(() => undefined);
+        if (balance === null) {
+          const notice = buyerRegistrationNotice(tokenMetaFor(tokenId), CFG.buyerId);
+          if (notice) bot.meta.append(element('span', 'badge warning', notice));
+        }
+      }
+    }
   } catch (err) {
     setBadge(bot.status, { cls: 'error', text: err.message });
     updateRegisterEdited();

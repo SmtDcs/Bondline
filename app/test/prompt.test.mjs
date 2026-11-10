@@ -53,3 +53,15 @@ test('naivePolicy appends exactly the documented lines and nothing else', () => 
   assert.equal(naive.split('\n').length, 9);
   assert.ok(naive.startsWith(HONEST_7_LINES), 'honest prefix must stay byte identical');
 });
+
+// docs/STABLECOIN.md 10/12: a token order changes exactly the total line; the NEAR bytes are frozen.
+test('a tUSDC total changes only the total line (the NEAR prompt stays byte identical)', () => {
+  const p = systemPrompt({ ...HONEST_ARGS, amountLabel: '20 tUSDC' });
+  assert.equal(p, HONEST_7_LINES.replace('total 2 NEAR.', 'total 20 tUSDC.'));
+  assert.equal(systemPrompt(HONEST_ARGS), HONEST_7_LINES, 'no amountLabel: the old bytes');
+  const bytes = buildRequestBytes({
+    model: 'z-ai/glm-5.3-flash', orderId: 'A123-01', amountNear: '2', amountLabel: '20 tUSDC',
+    maxPolicyBps: 2000, history: [], userMessage: 'x',
+  });
+  assert.match(bytes.toString('utf8'), /total 20 tUSDC\./);
+});

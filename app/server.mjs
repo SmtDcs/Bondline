@@ -22,7 +22,33 @@ if (MODE === 'replay') {
   handlers = r.handlers; cfgPublic = r.publicConfig;
 } else {
   const cfg = loadConfig();
-  handlers = makeRelayer(cfg); cfgPublic = publicConfig(cfg);
+  // v2 detection is one get_config at startup. MethodNotFound means v1 (raised errors are logged,
+  // never read as v1); the page then uses the v1 argument shapes and hides token orders.
+  const { makeProvider, view } = await import('./lib/near.mjs');
+  const { detectApi, orderArgs } = await import('./lib/contract-api.mjs');
+  const { ftMetadata } = await import('./lib/token.mjs');
+  const provider = makeProvider(cfg.rpcUrl);
+  let contractApi = null;
+  try { contractApi = await detectApi(provider, cfg.contractId); } catch (e) { console.error(`contract version detection failed: ${e.message}`); }
+  const tokens = [];
+  if (contractApi === 2) {
+    try {
+      const config = await view(provider, cfg.contractId, 'get_config', {});
+      for (const id of config.allowed_tokens ?? []) tokens.push(await ftMetadata(provider, id));
+    } catch (e) {
+      console.error(`token metadata failed: ${e.message}`);
+    }
+    for (const order of cfg.orders) {
+      try {
+        const chain = await view(provider, cfg.contractId, 'get_order', orderArgs(contractApi, cfg.merchantId, order.order_id));
+        if (chain) { order.token = chain.token ?? null; order.expires_at_ms = chain.expires_at_ms ?? null; }
+      } catch { /* the config is still usable without the per-order metadata */ }
+    }
+  }
+  cfg.contractApi = contractApi;
+  cfg.tokens = tokens;
+  handlers = makeRelayer(cfg, { provider, ...(contractApi ? { api: contractApi } : {}) });
+  cfgPublic = publicConfig(cfg);
 }
 
 app.get('/api/config', (_req, res) => res.json(cfgPublic));

@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import { checkBundle } from './lib/nearai.mjs';
 import { loadAttestations, attestedRow, signerRows, resolveContract, PINNED_CONTRACT } from './lib/attestation.mjs';
+import { detectApi, receiptArgs, previewClaimArgs } from './lib/contract-api.mjs';
 
 const args = process.argv.slice(2);
 const file = args.find(a => !a.startsWith('--'));
@@ -29,12 +30,30 @@ if (!args.includes('--offline')) {
       console.log(`WARN  bundle.chain.contract is ${bundle.chain.contract} but this check uses ${contractId} (${PINNED_CONTRACT} is the deployed contract); the bundle's own claim is ignored`);
     }
     const provider = makeProvider(flag('--rpc') ?? process.env.NEAR_RPC_URL ?? 'https://test.rpc.fastnear.com');
+    // v2 keys orders and receipts by (merchant, id). The merchant is a CLI/env input, never guessed
+    // from the bundle (a forged bundle could name any merchant).
+    const merchant = flag('--merchant') ?? process.env.MERCHANT_ID ?? null;
+    const api = await detectApi(provider, contractId);
+    let config = null;
+    if (api === 2) {
+      config = await view(provider, contractId, 'get_config', {});
+      if (!merchant) throw new Error('a v2 contract keys receipts by merchant: pass --merchant <id> or set MERCHANT_ID');
+    }
     const signer = await view(provider, contractId, 'get_signer', { public_key_hex: bundle.signature.signing_address });
     // Simulated keys have no attestation record: only the registration row applies.
     rows.push(...(simulated ? signerRows(signer, bundle, records).slice(0, 4) : signerRows(signer, bundle, records)));
-    const receipt = await view(provider, contractId, 'get_receipt', { response_hash: bundle.response_hash });
+    const receipt = await view(provider, contractId, 'get_receipt', receiptArgs(api, merchant, bundle.response_hash));
+    if (receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
+    if (api === 2) {
+      const allowed = config?.allowed_tokens ?? [];
+      rows.push({
+        check: 'receipt token is in get_config().allowed_tokens',
+        ok: receipt?.token == null || allowed.includes(receipt.token),
+        detail: receipt?.token == null ? 'NEAR (always allowed)' : `${receipt.token} in [${allowed.join(', ')}]`,
+      });
+    }
     rows.push({ check: 'receipt on chain for these bytes (get_receipt)', ok: !!receipt && receipt.order_id === bundle.order_id, detail: receipt ? `order ${receipt.order_id} block ${receipt.block_height}` : 'null: NOT A PROMISE' });
-    const preview = await view(provider, contractId, 'preview_claim', { order_id: bundle.order_id, response_b64: bundle.response_b64 });
+    const preview = await view(provider, contractId, 'preview_claim', previewClaimArgs(api, merchant, bundle.order_id, bundle.response_b64));
     rows.push({ check: 'preview_claim', ok: preview.ok || preview.error === 'ERR_ALREADY_CLAIMED', detail: JSON.stringify(preview) });
   } catch (e) {
     const cause = e?.cause?.code ?? e?.cause?.message;

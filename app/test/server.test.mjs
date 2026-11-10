@@ -86,3 +86,34 @@ test('callFinal keeps the tx hash of a thrown contract panic', async () => {
   assert.equal(body.tx, 'ChainTxHash222');
   assert.equal(body.explorer, explorerTx('ChainTxHash222'));
 });
+
+// docs/STABLECOIN.md 14: the v2 /api/config additions are additive; the v1 payload above is unchanged.
+test('/api/config on v2 adds contract_api, token metadata and per-order token/expiry, never keys', () => {
+  const env = {
+    CONTRACT_ID: 'v2.cbp-sm1110.testnet',
+    MERCHANT_ID: 'cbp-shop-sm1110.testnet',
+    BUYER_ID: 'cbp-alice-sm1110.testnet',
+    RELAYER_SECRET_KEY: 'placeholder-relayer-key',
+    BUYER_CLAIM_SECRET_KEY: 'placeholder-buyer-key',
+    NEARAI_API_KEY: 'placeholder-api-key',
+    TOKEN_ID: 'tusdc.testnet',
+    DEMO_ORDERS: 'A123-01:Broken mug:2000,A124-01:Late delivery:2000:naive',
+  };
+  const cfg = loadConfig(env);
+  assert.equal(cfg.tokenId, 'tusdc.testnet');
+  cfg.contractApi = 2;
+  cfg.tokens = [{ id: 'tusdc.testnet', symbol: 'tUSDC', decimals: 6 }];
+  cfg.orders[0].token = 'tusdc.testnet';
+  cfg.orders[0].amount = '20000000';
+  cfg.orders[0].expires_at_ms = '1796792000000';
+  const pub = publicConfig(cfg);
+  assert.equal(pub.contract_api, 2);
+  assert.deepEqual(pub.tokens, [{ id: 'tusdc.testnet', symbol: 'tUSDC', decimals: 6 }]);
+  assert.deepEqual(pub.orders, [
+    { order_id: 'A123-01', label: 'Broken mug', token: 'tusdc.testnet', expires_at_ms: '1796792000000' },
+    { order_id: 'A124-01', label: 'Late delivery', naive: true, token: null, expires_at_ms: null },
+  ]);
+  assert.deepEqual(Object.keys(pub).sort(), ['buyerId', 'contractId', 'contract_api', 'merchantId', 'mode', 'model', 'network', 'orders', 'rpcUrl', 'tokens']);
+  const json = JSON.stringify(pub);
+  assert.doesNotMatch(json, /placeholder-|SECRET|ed25519:|sk-/);
+});

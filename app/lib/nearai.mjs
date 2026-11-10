@@ -11,11 +11,12 @@ export function sha256Hex(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
 }
 
-/** System prompt v1 (FROZEN: changing it changes every request hash, that is fine, but keep the grammar text). */
-export function systemPrompt({ orderId, amountNear, maxPolicyBps, naivePolicy = false }) {
+/** System prompt v1 (FROZEN: changing it changes every request hash, that is fine, but keep the grammar text).
+ *  `amountLabel` formats a token total (`20 tUSDC`); when it is absent the NEAR wording is byte identical. */
+export function systemPrompt({ orderId, amountNear, amountLabel, maxPolicyBps, naivePolicy = false }) {
   return [
     'You are the support assistant of Demo Mug Shop.',
-    `The customer is asking about order ${orderId}, total ${amountNear} NEAR.`,
+    `The customer is asking about order ${orderId}, total ${amountLabel ?? `${amountNear} NEAR`}.`,
     `Shop policy: for a damaged item you may offer a partial refund of ${maxPolicyBps} basis points (100 bps = 1%).`,
     'If and only if you promise a refund, end your reply with ONE final line, exactly in this format and nothing else on that line:',
     `PROMISE|refund|order=${orderId}|bps=<N>`,
@@ -32,11 +33,11 @@ export function systemPrompt({ orderId, amountNear, maxPolicyBps, naivePolicy = 
  * Build the request body ONCE. Returns a Buffer. Key order is fixed by this literal.
  * @returns {Buffer}
  */
-export function buildRequestBytes({ model, orderId, amountNear, maxPolicyBps, history, userMessage, naivePolicy = false }) {
+export function buildRequestBytes({ model, orderId, amountNear, amountLabel, maxPolicyBps, history, userMessage, naivePolicy = false }) {
   const body = {
     model,
     messages: [
-      { role: 'system', content: systemPrompt({ orderId, amountNear, maxPolicyBps, naivePolicy }) },
+      { role: 'system', content: systemPrompt({ orderId, amountNear, amountLabel, maxPolicyBps, naivePolicy }) },
       ...history, // [{role:'user'|'assistant', content:string}] earlier turns, plain text only
       { role: 'user', content: userMessage },
     ],

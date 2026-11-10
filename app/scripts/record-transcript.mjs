@@ -23,6 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeProvider, view } from '../lib/near.mjs';
 import { sha256Hex } from '../lib/nearai.mjs';
+import { detectApi, orderArgs, receiptArgs, previewClaimArgs } from '../lib/contract-api.mjs';
+import { ftMetadata } from '../lib/token.mjs';
 import {
   newestBundle, tamperedCopy, chatTimePreview, merchantBeforeClaims, readJsonLines, lastLine, lastUserMessage,
 } from '../lib/transcript.mjs';
@@ -70,12 +72,15 @@ console.log(`         ${orderB} -> ${path.relative(ROOT, bundleB.file)} (${bundl
 console.log(`contract: ${contractId}  rpc: ${RPC_URL}`);
 
 const provider = makeProvider(RPC_URL);
+// v2 keys orders and receipts by (merchant, id); v1 does not. Detect once, then use the matching args.
+const api = await detectApi(provider, contractId);
+console.log(`contract api ${api}`);
 
 async function recordViews(orderId, bundle) {
-  const receipt = await viewWithRetry(provider, contractId, 'get_receipt', { response_hash: bundle.response_hash });
-  const previewLive = await viewWithRetry(provider, contractId, 'preview_claim', { order_id: orderId, response_b64: bundle.response_b64 });
-  const order = await viewWithRetry(provider, contractId, 'get_order', { order_id: orderId });
+  const order = await viewWithRetry(provider, contractId, 'get_order', orderArgs(api, null, orderId));
   if (!order) throw new Error(`get_order(${orderId}) is null`);
+  const receipt = await viewWithRetry(provider, contractId, 'get_receipt', receiptArgs(api, order.merchant, bundle.response_hash));
+  const previewLive = await viewWithRetry(provider, contractId, 'preview_claim', previewClaimArgs(api, order.merchant, orderId, bundle.response_b64));
   const merchant = await viewWithRetry(provider, contractId, 'get_merchant', { merchant: order.merchant });
   // The recorded run settled the order, so the live view is ERR_ALREADY_CLAIMED; rebuild what the
   // contract answered at chat time. If a future run is recorded while the order is still open, the
@@ -92,8 +97,8 @@ async function tamperViews(orderId, bundle, order) {
   const tampered = tamperedCopy(bundle);
   if (!tampered) return null;
   const responseHash = sha256Hex(Buffer.from(tampered.response_b64, 'base64'));
-  const receipt = await viewWithRetry(provider, contractId, 'get_receipt', { response_hash: responseHash });
-  const previewLive = await viewWithRetry(provider, contractId, 'preview_claim', { order_id: orderId, response_b64: tampered.response_b64 });
+  const receipt = await viewWithRetry(provider, contractId, 'get_receipt', receiptArgs(api, order.merchant, responseHash));
+  const previewLive = await viewWithRetry(provider, contractId, 'preview_claim', previewClaimArgs(api, order.merchant, orderId, tampered.response_b64));
   const preview = previewLive?.error === 'ERR_ALREADY_CLAIMED'
     ? chatTimePreview(order, tampered.response_b64, receipt)
     : previewLive;
@@ -109,6 +114,10 @@ const tamperB = await tamperViews(orderB, bundleB.bundle, viewsB.get_order);
 const claims = readJsonLines(CLAIMS_LOG);
 const claimA = lastLine(claims, l => l.order_id === orderA && l.claim_tx && l.result, `claims.log claim for ${orderA}`);
 const claimB = lastLine(claims, l => l.order_id === orderB && l.claim_tx && l.result, `claims.log claim for ${orderB}`);
+/** A recorded failed payout (ok:false): the retry beat of the v2 transcript. */
+const failedFor = (orderId) => claims.filter(l => l.order_id === orderId && l.error === 'ERR_PAYOUT_FAILED').at(-1) ?? null;
+const failedA = failedFor(orderA);
+const failedB = failedFor(orderB);
 const claimAgain = lastLine(claims, l => l.order_id === orderA && l.error === 'ERR_ALREADY_CLAIMED', `claims.log ERR_ALREADY_CLAIMED for ${orderA}`);
 const edits = readJsonLines(MERCHANT_LOG);
 const editedA = lastLine(edits, l => l.kind === 'register-edited' && l.order_id === orderA, `merchant.log register-edited for ${orderA}`);
@@ -121,14 +130,26 @@ const preClaimMerchant = merchantBeforeClaims(viewsA.get_merchant, [
   { payout: claimB.result.payout, liability: viewsB.get_order.liability },
 ]);
 
+// v2: token metadata for every token in a recorded order, so the replay page can format amounts.
+const tokens = [];
+if (api === 2) {
+  for (const order of [viewsA.get_order, viewsB.get_order]) {
+    const id = order?.token ?? null;
+    if (id && !tokens.some(t => t.id === id)) tokens.push(await ftMetadata(provider, id));
+  }
+}
+
 const transcript = {
-  type: 'bot-promises/replay/v1',
+  type: api === 2 ? 'bot-promises/replay/v2' : 'bot-promises/replay/v1',
   recorded_at: new Date().toISOString(),
   contract: contractId,
+  ...(api === 2 ? { contract_api: 2, tokens } : {}),
   steps: [
     { kind: 'chat', order_id: orderA, message: lastUserMessage(bundleA.bundle), bundle_file: 'fixtures/live/a123.json', register_tx: bundleA.bundle.chain.register_tx, views: { ...viewsA, get_merchant: preClaimMerchant, ...(tamperA ? { tamper: tamperA } : {}) } },
+    ...(failedA ? [{ kind: 'claim-failed', order_id: orderA, tx: failedA.claim_tx, error: failedA.error }] : []),
     { kind: 'claim', order_id: orderA, claim_tx: claimA.claim_tx, result: claimA.result },
     { kind: 'chat', order_id: orderB, message: lastUserMessage(bundleB.bundle), bundle_file: 'fixtures/live/a124.json', register_tx: bundleB.bundle.chain.register_tx, views: { ...viewsB, ...(tamperB ? { tamper: tamperB } : {}) } },
+    ...(failedB ? [{ kind: 'claim-failed', order_id: orderB, tx: failedB.claim_tx, error: failedB.error }] : []),
     { kind: 'claim', order_id: orderB, claim_tx: claimB.claim_tx, result: claimB.result },
     { kind: 'register-edited', order_id: orderA, tx: editedA.tx, error: editedA.error },
     { kind: 'claim-again', order_id: orderA, error: claimAgain.error },

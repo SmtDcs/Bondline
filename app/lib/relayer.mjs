@@ -5,6 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildRequestBytes, chatExact, fetchSignature, checkBundle, sha256Hex } from './nearai.mjs';
 import { makeProvider, accountFromKey, callFinal, explorerTx } from './near.mjs';
+import { detectApi, orderArgs, claimArgs, API_V1, API_V2 } from './contract-api.mjs';
+import { ftMetadata, registrationHint } from './token.mjs';
+import { formatAmount } from './amount.mjs';
 
 /**
  * A badly configured (naive) order is told it may promise up to 100% (TASKS T06/S2). This is a
@@ -43,18 +46,31 @@ export function loadConfig(env = process.env) {
     contractId: env.CONTRACT_ID, merchantId: env.MERCHANT_ID, buyerId: env.BUYER_ID,
     model: env.MODEL ?? 'z-ai/glm-5.3-flash', signingAlgo: env.SIGNING_ALGO ?? 'ed25519',
     nearaiKey: env.NEARAI_API_KEY, relayerKey: env.RELAYER_SECRET_KEY, buyerKey: env.BUYER_CLAIM_SECRET_KEY,
+    // Scripts only; the relayer itself never moves tokens in. The value is not a key.
+    tokenId: env.TOKEN_ID ?? null,
+    // Optional override for tests/tools; null means "detect with get_config at the first call".
+    contractApi: env.CONTRACT_API ? Number(env.CONTRACT_API) : null,
     orders,
   };
 }
 
-/** Public part of the config (never includes keys). */
+/** Public part of the config (never includes keys).
+ *  contract_api/tokens and per-order token/expires_at_ms are additive and only present on v2,
+ *  so a v1 payload stays byte-compatible (pinned by app/test/server.test.mjs). */
 export function publicConfig(cfg) {
   const { mode, network, rpcUrl, contractId, merchantId, buyerId, model, orders } = cfg;
-  // `naive` is additive (CR-3) and only present when true, so the honest /api/config payload is unchanged.
-  return {
+  const api = cfg.contractApi ?? null;
+  const out = {
     mode, network, rpcUrl, contractId, merchantId, buyerId, model,
-    orders: orders.map(({ order_id, label, naive }) => ({ order_id, label, ...(naive ? { naive: true } : {}) })),
+    orders: orders.map(({ order_id, label, naive, token, expires_at_ms }) => ({
+      order_id, label,
+      ...(naive ? { naive: true } : {}),
+      ...(api === API_V2 ? { token: token ?? null, expires_at_ms: expires_at_ms ?? null } : {}),
+    })),
   };
+  if (api != null) out.contract_api = api;
+  if (api === API_V2) out.tokens = cfg.tokens ?? [];
+  return out;
 }
 
 export function makeRelayer(cfg, deps = {}) {
@@ -76,22 +92,48 @@ export function makeRelayer(cfg, deps = {}) {
     catch (e) { console.error(`log write failed (${file}): ${e.message}`); }
   };
 
+  // v2 is detected once with get_config; MethodNotFound means v1, every other error is raised
+  // (app/lib/contract-api.mjs). deps.api pins it in tests/tools.
+  let apiPromise;
+  async function apiVersion() {
+    if (deps.api) return deps.api;
+    if (cfg.contractApi) return cfg.contractApi;
+    if (!apiPromise) {
+      apiPromise = typeof provider?.callFunction === 'function'
+        ? detectApi(provider, cfg.contractId)
+        : Promise.resolve(API_V1);
+    }
+    return apiPromise;
+  }
+  const tokenMeta = new Map(); // token id -> {id, symbol, decimals}
+  async function metaFor(tokenId) {
+    if (!tokenMeta.has(tokenId)) tokenMeta.set(tokenId, await ftMetadata(provider, tokenId));
+    return tokenMeta.get(tokenId);
+  }
+
   async function handleChat({ order_id, message } = {}) {
     requireOrderId(order_id);
     requireMessage(message);
-    const order = await provider.callFunction({ contractId: cfg.contractId, method: 'get_order', args: { order_id } });
+    const api = await apiVersion();
+    const order = await provider.callFunction({ contractId: cfg.contractId, method: 'get_order', args: orderArgs(api, cfg.merchantId, order_id) });
     if (!order) throw Object.assign(new Error('ERR_NO_ORDER'), { status: 404 });
     if (String(order.merchant) !== cfg.merchantId) throw badRequest(`order ${order_id} belongs to ${order.merchant}, not ${cfg.merchantId}`);
+    const expiresAt = order.expires_at_ms == null ? null : Number(order.expires_at_ms);
+    if (order.status === 'expired' || (expiresAt != null && Date.now() >= expiresAt)) {
+      throw Object.assign(new Error('ERR_ORDER_EXPIRED'), { status: 400, detail: `order ${order_id} expired, a new reply cannot be registered` });
+    }
     if (order.status !== 'open') throw Object.assign(new Error('ERR_ALREADY_CLAIMED'), { status: 400, detail: `order ${order_id} is ${order.status}` });
     const meta = cfg.orders.find(o => o.order_id === order_id) ?? { policy_bps: 2000, naive: false };
     const amountNear = (Number(BigInt(order.amount) / 10n ** 21n) / 1000).toString(); // display only
+    // A token order shows its own currency; a NEAR order keeps the frozen `2 NEAR` wording (byte identical).
+    const amountLabel = order.token ? await tokenLabel(order.token, order.amount) : undefined;
     const turns = history.get(order_id) ?? [];
     // The DEMO_ORDERS `naive` flag marks the badly configured bot (docs/spike-s2.md, PLAN R4).
     // It changes the system prompt (and the policy the bot is told about) only; the on-chain max_bps
     // stays 3000, so the contract caps the payout.
     const naive = meta.naive === true;
     const requestBytes = buildBytes({
-      model: cfg.model, orderId: order_id, amountNear,
+      model: cfg.model, orderId: order_id, amountNear, amountLabel,
       maxPolicyBps: naive ? NAIVE_POLICY_BPS : meta.policy_bps,
       history: turns, userMessage: message, naivePolicy: naive,
     });
@@ -118,17 +160,36 @@ export function makeRelayer(cfg, deps = {}) {
     return { reply, bundle, register_tx: reg.txHash, explorer: explorerTx(reg.txHash) };
   }
 
+  async function tokenLabel(tokenId, rawAmount) {
+    const meta = await metaFor(tokenId);
+    return `${formatAmount(rawAmount, meta.decimals)} ${meta.symbol}`;
+  }
+
   async function handleClaim({ order_id, response_b64 } = {}) {
     // Validate before a transaction is signed: a malformed request must never spend the claim key's gas allowance.
     requireOrderId(order_id);
     requireResponseB64(response_b64);
+    const api = await apiVersion();
     try {
-      const r = await finalCall(buyer, cfg.contractId, 'claim', { order_id, response_b64 }, { tgas: 100 });
+      const r = await finalCall(buyer, cfg.contractId, 'claim', claimArgs(api, cfg.merchantId, order_id, response_b64), { tgas: 100 });
+      // A successful transaction is not a successful payout: the contract's callback returns ok:false
+      // when the transfer failed and put the order back to open. The shopper can retry after fixing it.
+      if (r.value && r.value.ok === false) {
+        const error = r.value.error ?? 'ERR_PAYOUT_FAILED';
+        appendLog('claims.log', { order_id, claim_tx: r.txHash, error: 'ERR_PAYOUT_FAILED' });
+        const hint = registrationHint(r.value.token ?? cfg.tokenId ?? null, cfg.buyerId);
+        throw Object.assign(new Error(`ERR_PAYOUT_FAILED: ${error}; the order is open again, retry after fixing it`), {
+          status: 502,
+          txHash: r.txHash,
+          detail: `payout failed (${error}); the order is open again. ${hint}`,
+        });
+      }
       appendLog('claims.log', { order_id, claim_tx: r.txHash, result: r.value });
       return { ok: true, result: r.value, claim_tx: r.txHash, explorer: explorerTx(r.txHash) };
     } catch (e) {
       // T18: the replay's `claim-again` step is the logged 400 (ERR_ALREADY_CLAIMED), not a literal.
-      appendLog('claims.log', { order_id, claim_tx: e.txHash ?? null, error: errCode(e) });
+      // Do not double-log the ERR_PAYOUT_FAILED entry written above.
+      if (errCode(e) !== 'ERR_PAYOUT_FAILED') appendLog('claims.log', { order_id, claim_tx: e.txHash ?? null, error: errCode(e) });
       throw e;
     }
   }

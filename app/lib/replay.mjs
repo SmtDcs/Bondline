@@ -32,7 +32,9 @@ function naiveBundle(bundle) {
  */
 export function makeReplay(transcriptPath = 'fixtures/replay/transcript.json') {
   const transcript = JSON.parse(fs.readFileSync(transcriptPath, 'utf8'));
-  if (transcript.type !== 'bot-promises/replay/v1') throw new Error(`not a replay transcript: ${transcriptPath}`);
+  if (!['bot-promises/replay/v1', 'bot-promises/replay/v2'].includes(transcript.type)) {
+    throw new Error(`not a replay transcript: ${transcriptPath}`);
+  }
   const steps = transcript.steps ?? [];
 
   const chatSteps = steps.filter(s => s.kind === 'chat');
@@ -43,8 +45,10 @@ export function makeReplay(transcriptPath = 'fixtures/replay/transcript.json') {
   }
   const chatByOrder = new Map(chatSteps.map(s => [s.order_id, s]));
   const claimByOrder = new Map(steps.filter(s => s.kind === 'claim').map(s => [s.order_id, s]));
+  const claimFailedByOrder = new Map(steps.filter(s => s.kind === 'claim-failed').map(s => [s.order_id, s]));
   const editSteps = steps.filter(s => s.kind === 'register-edited');
   const claimed = new Set();
+  const replayedFailure = new Set();
 
   const orderView = chatSteps.map(s => s.views?.get_order).find(v => v?.merchant && v?.buyer);
   const orders = [];
@@ -52,6 +56,9 @@ export function makeReplay(transcriptPath = 'fixtures/replay/transcript.json') {
     if (orders.some(o => o.order_id === step.order_id)) continue;
     const entry = { order_id: step.order_id };
     if (bundles.get(step.order_id)?.naive) entry.naive = true;
+    const view = step.views?.get_order;
+    if (view?.token) entry.token = view.token;
+    if (view?.expires_at_ms) entry.expires_at_ms = view.expires_at_ms;
     orders.push(entry);
   }
 
@@ -64,6 +71,8 @@ export function makeReplay(transcriptPath = 'fixtures/replay/transcript.json') {
     buyerId: orderView?.buyer ?? null,
     model: bundles.values().next().value?.bundle.model ?? null,
     orders,
+    ...(transcript.contract_api ? { contract_api: transcript.contract_api } : {}),
+    ...(transcript.contract_api === 2 ? { tokens: transcript.tokens ?? [] } : {}),
   };
 
   function requireOrderId(order_id) {
@@ -97,6 +106,16 @@ export function makeReplay(transcriptPath = 'fixtures/replay/transcript.json') {
     const recorded = bundles.get(order_id);
     if (!step || !recorded) throw fail('ERR_NO_ORDER', 404);
     if (response_b64 !== recorded.bundle.response_b64) throw fail('ERR_NO_RECEIPT_FOR_BYTES', 400);
+    // A recorded failed payout is played once (the shopper retries the same claim afterwards).
+    const failed = claimFailedByOrder.get(order_id);
+    if (failed && !replayedFailure.has(order_id)) {
+      replayedFailure.add(order_id);
+      throw Object.assign(new Error(failed.error ?? 'ERR_PAYOUT_FAILED'), {
+        status: 502,
+        txHash: failed.tx ?? null,
+        detail: 'replay: the recorded payout failed (the receiver was not registered on the token); retry after registering',
+      });
+    }
     claimed.add(order_id);
     return { ok: true, result: step.result, claim_tx: step.claim_tx, explorer: explorerTx(step.claim_tx) };
   }
