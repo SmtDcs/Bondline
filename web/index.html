@@ -1,1 +1,21 @@
-<h1>ok</h1>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Claimable bot promises</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<header><h1>Claimable bot promises</h1><span id="mode-badge"></span> <span id="contract-link"></span></header>
+<main>
+  <section id="shopper"><h2>Shopper (your browser)</h2>
+    <label>Order <select id="order-select"></select></label>
+    <div id="chat-log"></div>
+    <form id="chat-form"><input id="chat-input" autocomplete="off" placeholder="Write to support..."><button>Send</button></form>
+  </section>
+  <section id="merchant"><h2>Merchant: Demo Mug Shop</h2>
+    <div id="bond-meter"></div>
+    <textarea id="deny-box" placeholder="Merchant reply...">We never promised that.</textarea>
+    <button id="btn-register-edited" disabled>Register an edited reply</button>
+    <div id="merchant-log"></div>
+  </section>
+</main>
+<footer id="footer">Testnet only. Demo: the shopper's claim-only key lives on this laptop.</footer>
+<script type="module" src="app.js"></script>
+</body></html>
