@@ -239,3 +239,31 @@ test('a token order is hidden when the config has no metadata for its token', as
     }
   });
 });
+
+test('replay of a v2 token recording shows the bond meter as a token row, and loads the transcript from the config url', async () => {
+  const els = fakePage();
+  const tokenView = { token: TOKEN.id, bond: '94000000', reserved: '0', paid_out: '6000000' };
+  const transcript = { type: 'bot-promises/replay/v2', steps: [{ kind: 'chat', order_id: 'A123-11', views: { get_merchant: tokenView } }] };
+  const config = { ...V2_CONFIG, mode: 'replay', transcript_url: '/fixtures/replay/transcript-v2.json' };
+  const real = globalThis.location;
+  globalThis.location = new URL('http://127.0.0.1:8787/?offline=1');
+  try {
+    const offline = await import('../../web/app.js?stablecoin-replay-meter');
+    const urls = [];
+    await withFetch((call) => {
+      urls.push(call.url);
+      return jsonResponse(call.url === '/api/config' ? config : transcript);
+    }, async () => {
+      await offline.loadConfig();
+      await offline.loadReplayTranscript();
+      await offline.refreshBondMeter();
+    });
+    assert.ok(urls.includes('/fixtures/replay/transcript-v2.json'), `transcript loaded from ${urls.join(', ')}`);
+    const meter = els['bond-meter'].children.map(c => c.textContent);
+    assert.deepEqual(meter.slice(0, 2), ['bond tUSDC', '94 tUSDC']);
+    assert.ok(!meter.includes('bond NEAR'), 'no NEAR row for a token-only recording');
+  } finally {
+    globalThis.location = real;
+    delete globalThis.document;
+  }
+});

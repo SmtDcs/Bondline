@@ -5,6 +5,7 @@ import path from 'node:path';
 import { explorerTx } from './near.mjs';
 
 export const REPLAY_RPC_URL = 'https://test.rpc.fastnear.com';
+export const DEFAULT_TRANSCRIPT = 'fixtures/replay/transcript.json';
 const ORDER_ID_RE = /^[A-Za-z0-9-]{1,32}$/;
 
 const fail = (code, status) => Object.assign(new Error(code), { status });
@@ -30,7 +31,7 @@ function naiveBundle(bundle) {
  * makeReplay('fixtures/replay/transcript.json') ->
  *   { handlers: {handleChat, handleClaim, handleRegisterEdited}, publicConfig }
  */
-export function makeReplay(transcriptPath = 'fixtures/replay/transcript.json') {
+export function makeReplay(transcriptPath = DEFAULT_TRANSCRIPT) {
   const transcript = JSON.parse(fs.readFileSync(transcriptPath, 'utf8'));
   if (!['bot-promises/replay/v1', 'bot-promises/replay/v2'].includes(transcript.type)) {
     throw new Error(`not a replay transcript: ${transcriptPath}`);
@@ -71,6 +72,9 @@ export function makeReplay(transcriptPath = 'fixtures/replay/transcript.json') {
     buyerId: orderView?.buyer ?? null,
     model: bundles.values().next().value?.bundle.model ?? null,
     orders,
+    // A non-default transcript (the v2 recording) tells the page where to load it from; the default stays absent
+    // so the v1 config is byte-identical to before.
+    ...(path.resolve(transcriptPath) !== path.resolve(DEFAULT_TRANSCRIPT) ? { transcript_url: `/fixtures/replay/${path.basename(transcriptPath)}` } : {}),
     ...(transcript.contract_api ? { contract_api: transcript.contract_api } : {}),
     ...(transcript.contract_api === 2 ? { tokens: transcript.tokens ?? [] } : {}),
   };

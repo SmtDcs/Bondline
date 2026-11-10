@@ -5,13 +5,24 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256Hex } from './nearai.mjs';
 
-/** The deployed contract this repo's receipts live on. verify.mjs trusts this, never the bundle's own claim. */
-export const PINNED_CONTRACT = 'cbp-sm1110.testnet';
+/** The current deployment (stablecoin v2). verify.mjs checks this unless told otherwise. */
+export const PINNED_CONTRACT = 'v2.cbp-sm1110.testnet';
+/** The first deployment, kept as recorded history: its fixtures keep verifying against it. */
+export const PINNED_V1_CONTRACT = 'cbp-sm1110.testnet';
+/** The only contracts a bundle's own `chain.contract` may select; any other name is ignored (forged bundle). */
+export const KNOWN_CONTRACTS = [PINNED_V1_CONTRACT, PINNED_CONTRACT];
 export const DEFAULT_ATTEST_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'attestation');
 
-/** Which contract to check: --contract flag, then CONTRACT_ID config, then the pinned deployment. Never the bundle. */
-export function resolveContract(flagValue, env = process.env) {
-  return flagValue || env.CONTRACT_ID || PINNED_CONTRACT;
+/**
+ * Which contract to check: --contract flag, then CONTRACT_ID config, then the contract a bundle names IF it is
+ * one of the two repo deployments (KNOWN_CONTRACTS, so the v1 fixtures keep verifying against v1), then the
+ * current pinned deployment. A bundle can never select any other contract.
+ */
+export function resolveContract(flagValue, env = process.env, bundleContract = null) {
+  if (flagValue) return flagValue;
+  if (env.CONTRACT_ID) return env.CONTRACT_ID;
+  if (KNOWN_CONTRACTS.includes(bundleContract)) return bundleContract;
+  return PINNED_CONTRACT;
 }
 
 /** [{file, sha256, signers: Set<lowercase signingAddress verified by the SDK>, model}] for every readable record. */

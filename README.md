@@ -4,16 +4,17 @@ A shop's AI support bot may promise a refund only in a fixed token. Each reply i
 
 Built at NEAR HACKATHON (2026-11) by Samet. Tracks: Real-World Money (`realworld`, listed first) and AI Security & Defense (`security`). Network: NEAR **testnet** only.
 
-Track fit: `realworld` - merchant refund promises backed by a bond, something a normal shop could use (the deployed demo pays in testnet NEAR; the NEP-141 stablecoin support in `contract-v2/` is built but **v-next, not deployed**). No NEAR Intents, no meta transactions. `security` - the hints are AGENT SECURITY, FUNCTION CALL KEYS and TEE ATTESTATION: the bot can promise only a fixed token, the payout is capped by the shop's on-chain `max_bps`, the shop's relayer key can call only `register_receipt` and the shopper's demo key only `claim`, and the signer key is registered with a hash of its TDX/GPU attestation record. Also touches `privacy` (TEE, NEAR AI Cloud), but the chat is not private (a claim publishes the reply), so we do not claim that track.
+Track fit: `realworld` - merchant refund promises backed by a bond, something a normal shop could use (the recorded run pays testnet NEAR; the NEP-141 stablecoin version `contract-v2/` is **deployed on testnet** with a mock tUSDC, but its end-to-end runs have **not been recorded yet**, see the stablecoin section). No NEAR Intents, no meta transactions. `security` - the hints are AGENT SECURITY, FUNCTION CALL KEYS and TEE ATTESTATION: the bot can promise only a fixed token, the payout is capped by the shop's on-chain `max_bps`, the shop's relayer key can call only `register_receipt` and the shopper's demo key only `claim`, and the signer key is registered with a hash of its TDX/GPU attestation record. Also touches `privacy` (TEE, NEAR AI Cloud), but the chat is not private (a claim publishes the reply), so we do not claim that track.
 
-- Contract: `cbp-sm1110.testnet` (owner = itself; the account still holds a full-access key, see Trust boundaries)
+- Contract (current, stablecoin v2): `v2.cbp-sm1110.testnet` (owner = itself, NEP-141 allow-list `[sm1110-tusdc.testnet]`; the client defaults point here). Mock token: `sm1110-tusdc.testnet` (tUSDC, 6 decimals).
+- Contract (v1, recorded history, still live and unchanged): `cbp-sm1110.testnet` (owner = itself; the account still holds a full-access key, see Trust boundaries). The recorded run, `fixtures/live/` and `fixtures/replay/transcript.json` are v1.
 - Merchant: `cbp-shop-sm1110.testnet` - Shopper: `cbp-alice-sm1110.testnet`
 - Bot model: NEAR AI Cloud `z-ai/glm-5.3-flash`; TEE signer `5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff` (ed25519)
 - Recorded run: `fixtures/replay/transcript.json` (2026-11-10)
 - Open items before submission (video, X post, tag): `docs/SUBMISSION.md`
 
 ## What NEAR does here
-- The contract `cbp-sm1110.testnet` holds the shop's bond and runs `env::ed25519_verify` on the NEAR AI TEE signature over `z-ai/glm-5.3-flash:sha256(request bytes):sha256(response bytes)` (`contract/src/lib.rs`, `register_receipt`).
+- The v1 contract `cbp-sm1110.testnet` (v2 has the same checks, see the stablecoin section) holds the shop's bond and runs `env::ed25519_verify` on the NEAR AI TEE signature over `z-ai/glm-5.3-flash:sha256(request bytes):sha256(response bytes)` (`contract/src/lib.rs`, `register_receipt`).
 - `claim` re-hashes the reply bytes, finds the `PROMISE|refund|order=A123-11|bps=2000`-shaped token (one `order` id of 1-32 characters from `[A-Za-z0-9-]`, one `bps` 1-10000), pays `min(bps, max_bps) * order amount` from the bond, once per order.
 - The shop's bot server holds a function-call access key that can call only `register_receipt`; the shopper's demo key can call only `claim`.
 - The per-order cap is reserved from the bond when the order is created, so the shop cannot withdraw it.
@@ -30,15 +31,15 @@ Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys, no Rust for 
 3. `npm run verify -- fixtures/live/a123.json` - also checks testnet.
    - Expected last line: `VERIFIED`.
    - Testnet checks: signer registered, signer is `provider_tee` for the bundle's model and not expired, its `attestation_sha256` is the sha256 of a `fixtures/attestation` record that lists the key, receipt on chain, `preview_claim`.
-   - The contract checked is `--contract`, then `$CONTRACT_ID`, then the deployed `cbp-sm1110.testnet`, never the contract named inside the bundle (a `WARN` line says so when they differ).
+   - The contract checked is `--contract`, then `$CONTRACT_ID`, then the contract the bundle names **only if it is one of the two repo deployments** (`cbp-sm1110.testnet` v1 history, `v2.cbp-sm1110.testnet`), then the pinned current `v2.cbp-sm1110.testnet`. Any other contract named inside a bundle is ignored and a `WARN` line says so. That is why the v1 fixtures keep verifying against v1 with no flag. A v2 contract needs `--merchant cbp-shop-sm1110.testnet` (receipts are keyed by merchant).
    - Order A123-11 is already claimed, so `preview_claim` answers `ERR_ALREADY_CLAIMED`. That still passes: the signer and receipt checks are the point.
    - A SIMULATED bundle ends in `SIMULATED (fake key, proves nothing about a TEE)`, never `VERIFIED`.
    - **Behind an HTTP(S) proxy:** `verify` uses Node's built-in `fetch`, which ignores `HTTP_PROXY` / `HTTPS_PROXY`. Without help it prints `FAIL  testnet RPC unreachable` and `NOT VERIFIED` (exit 1). Set `NODE_USE_ENV_PROXY=1` (Node 22.21+ or 24), for example `NODE_USE_ENV_PROXY=1 npm run verify -- fixtures/live/a123.json`, or skip testnet with `--offline`. Node prints an `UNDICI-EHPA` experimental warning; ignore it.
    - Offline: `npm run verify -- fixtures/live/a123.json --offline` ends in `VERIFIED` (off-chain checks only; it also requires the signing key to be in an attestation record).
 4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the recorded badges and the Claim button show up: the plain URL http://127.0.0.1:8787 runs the same replay but asks testnet for the BINDING check, and both recorded orders are already claimed on chain, so it shows `ERR_ALREADY_CLAIMED` (the honest live state) instead of the claimable badges. `?offline=1` touches nothing but localhost.
 5. (Rust 1.95 installed) `npm run test:contract` - see `test result: ok. 16 passed; 0 failed`.
-6. `npm run test:js` - see `# fail 0` (153 tests). The review round of 2026-11-10 saw 149 pass and 4 fail: the 4 `demo-setup` tests spawn `bash`, which that sandbox refused (`spawnSync bash EPERM`); `bash -n` and the `DRY_RUN=1` run were done by hand and were fine. Run them on a normal shell.
-7. (v2, not deployed) `npm run test:contract:v2` - see `test result: ok. 90 passed`.
+6. `npm run test:js` - see `# fail 0` (159 tests, all passed on 2026-11-10). In a sandbox where Node cannot spawn programs by PATH lookup the `demo-setup` tests used to fail with `spawnSync bash EPERM`; they now call `/bin/bash` and run in an empty directory, so they do not depend on the PATH or on your `.env`.
+7. `npm run test:contract:v2` - see `test result: ok. 90 passed`.
 
 ## Verify each claim
 | Claim | Do | See |
@@ -124,28 +125,55 @@ Known limits (also stated in `docs/plan/PLAN.md` section 4 and in the contract c
 - NEAR AI notes that instances of the same model share one signing key, so a signer key identifies the model family and its TEE, not one individual instance.
 - A claim puts the reply bytes on chain (the shopper chooses to claim), so a claimed conversation is public. This is not private chat.
 - Wallet login for the shopper is not implemented: the demo keeps a claim-only function-call key on the laptop and labels it.
-- There is no order expiry and no way to release an unclaimed reservation; the reserved liability stays until the order is claimed.
+- (v1) There is no order expiry and no way to release an unclaimed reservation; the reserved liability stays until the order is claimed. v2 adds both (unit-tested, not yet run on testnet).
 - Only one token kind (`refund`) exists, with no discounts, replacements or disputes.
 - The TEE signer registered with `add_signer` has an expiry (`expires_at_ms`, `--days N` in `npm run attest`). After it, `register_receipt` fails with the signer error; receipts already on chain stay valid. To renew: `npm run attest -- --model z-ai/glm-5.3-flash --days N`, then run the `add_signer` command it prints (owner key). **Current state (renewed 2026-11-10 10:45 UTC by the operator (on-chain `added_at_ms` 1794307533875 = 2026-11-10T10:45:33Z)):** the signer `5a0210f2…caff` was re-attested (TCB UpToDate, GPU verified) and re-registered with `add_signer` (tx `DMnrwVT2vV7Mb6u33t79PkvqUtzw2CRr1r3DrrBQcQZX`); `expires_at_ms` is now 1796035518568 = 2026-11-30 10:45 UTC, after the judging window. `get_signers` shows `attestation_sha256` `520bedd1a170147cf13b84ad168440c1db011060fc525da1a434f76e6c126a65` = sha256 of `fixtures/attestation/z-ai_glm-5.3-flash-ed25519-2026-11-10-renewed.json`. The first record `fixtures/attestation/z-ai_glm-5.3-flash-ed25519-2026-11-10.json` (sha256 `dce1c116…2365`) is kept: `verify` loads every record in `fixtures/attestation/`. Receipts already on chain stay valid; after expiry only new `register_receipt` calls fail with `ERR_SIGNER_EXPIRED`. To renew again: `npm run attest -- --model z-ai/glm-5.3-flash --days N --out-dir <tmp>`, copy the record into `fixtures/attestation/` under a new name, then run the printed `add_signer` command (owner key).
 
 ### Known limitations (contract v1)
-The contract on testnet (`cbp-sm1110.testnet`, wasm sha256 `c4d88ead…`) is frozen for the submission. These are known and understood; the last column says how the built v2 (`contract-v2/`, **v-next, not deployed**) addresses each one. The deployed contract is unchanged:
+The contract on testnet (`cbp-sm1110.testnet`, wasm sha256 `c4d88ead…`) is frozen for the submission. These are known and understood; the last column says how v2 (`contract-v2/`, deployed at `v2.cbp-sm1110.testnet`) addresses each one. These v2 fixes are covered by unit tests; the live runs that would show them on testnet (L10-L12 in `docs/STABLECOIN.md`) are **not done yet**, so do not read them as proven on chain. The v1 contract is unchanged:
 
 | # | Limitation | Scenario | Impact | v2 fix |
 | --- | --- | --- | --- | --- |
 | 1 | No storage deposit | Anyone calls `register_merchant` with 1 NEAR, withdraws it (`reserved = 0`), then `register_order` with `amount=1, max_bps=1` (liability rounds to 0) in a loop, and `register_receipt` stores data even for claimed orders. Every byte is staked from the contract's own balance, which also holds all merchants' bonds. | A spammer can drain the contract's free balance toward insolvency; once the contract cannot cover storage, a detached `claim` transfer can fail (`LackBalanceForState`) after the order is already marked paid and the bond lowered, so the shopper loses that payout. Testnet demo only: the contract keeps its own storage buffer (R4 check: >= 3 NEAR beyond bonds) and nobody holds real money. | Measure `env::storage_usage()` before/after in `register_order` and `register_receipt` and charge the cost to the merchant's free bond (or require an attached deposit); require `liability > 0` or a minimum amount; add a callback on the `claim` transfer that restores state if it fails. |
 | 2 | Global order-id namespace | `orders` is keyed by `order_id` alone, not `(merchant, order_id)`. Another registered merchant can register an id first (`ERR_ORDER_EXISTS` for the real shop), naming any buyer. Only that order's merchant can then register receipts for it. | Order-id squatting: a hostile merchant can block or confuse ids of another shop. It cannot take money from another merchant's bond (each order is paid from its own merchant's bond) or register receipts for orders it does not own. | Key orders by `(merchant, order_id)` (or prefix the id with the merchant account) and include the merchant in `claim`. |
 
-## Stablecoin support: contract v2 (`v-next, not deployed yet`)
+## Stablecoin support: contract v2 (deployed on testnet, live runs still open)
 
-`contract-v2/` (crate `bot-promises-v2`) implements the design in `docs/STABLECOIN.md`. It is built
-and tested locally, but **it is not deployed**: there is no `v2.cbp-sm1110.testnet` account, no v2
-wasm on testnet and no live transaction. Nothing in this section describes a running service.
+`contract-v2/` (crate `bot-promises-v2`) implements the design in `docs/STABLECOIN.md`. State on
+2026-11-10, **only what was checked**:
 
-- Build: `npm run build:contract:v2` -> `contract-v2/res/bot_promises_v2.wasm` (299448 bytes,
-  sha256 `399c5af66e90a5800658f86a25c29fa76c62018f7d77d40b47e139e71f9b08bd`, rebuilt after the review fixes).
-- Tests: `npm run test:contract:v2` -> `90 passed`; the v1 suite is still `16 passed`; `npm run
-  test:js` -> 153 tests (149 passed in the review sandbox, see step 6 above); `npm run verify:fixtures` is unchanged.
+| Item | Value |
+| --- | --- |
+| Market contract | `v2.cbp-sm1110.testnet`, owner = itself, `get_config` -> `api 2`, `allowed_tokens ["sm1110-tusdc.testnet"]`, `min_order_ttl_ms 120000` (a demo setting; the contract default is 1 hour) |
+| Code | `contract-v2/res/bot_promises_v2.wasm`, 299448 bytes, sha256 `399c5af66e90a5800658f86a25c29fa76c62018f7d77d40b47e139e71f9b08bd`; the on-chain `code_hash` of the account is the same (checked by RPC `view_account` on 2026-11-10) |
+| Created / funded / deployed | create tx `7w6riZo57TqQXaqSuY19aCkfCwxCKcmBL5f4A8c8CBVz`, funding tx `CbD75d7Ro1e4HmDFNrstxhXoZA31d8CxpvMisN8ug4z` (7 NEAR), deploy + `new` tx `BY57K2VSfnuTg236uwVsa1frUJbyD2TyebYcFaJq1bA5` (operator; each tx was re-read with RPC `tx`: success) |
+| Market registered on the token | tx `9MfE4aApnDg6zH4XuTQoXEAuKm9D7Qqc8AFPFU3URnJn`; `storage_balance_of` on the token is `1250000000000000000000` |
+| TEE signer on v2 | `add_signer` tx `B4GGMbPTthfEhztR5fXqN7iJFuZet9PCBADYwLeTtGDR` (`add_signer` takes no deposit, attach 0; a first attempt with a deposit failed); `get_signers` shows `5a0210f2…caff`, attestation `520bedd1…6a65`, expires 2026-11-30 |
+| Function-call keys on v2 | shop `register_receipt` (tx `7E1q3roU8iSeTTzXqjvrLak1uN1qyFcgEd79e3jiXvYe`), alice `claim` (tx `5qygwdQQTorxucw9kojQSY1ZS7Z2zxJTYLdcZK9yWAie`); both work, see below |
+| Token | `sm1110-tusdc.testnet`, **a testnet mock** (NEP-141 + NEP-145 + NEP-148, symbol `tUSDC`, 6 decimals, owner-only mint), wasm sha256 `66d6fc0a1c29683a8802bda397e8448ead45c74df1d591cc5ddf2b6d213570c1` (the on-chain code hash matches), deploy tx `2b3hMb4qHXo3XFan4y4gCG3zow5MEaQCzvg1eYrJgBDJ` |
+| Accounts | shop and alice hold 10000 tUSDC each; `cbp-bob-sm1110.testnet` exists and is deliberately **not** registered on the token (the failure-case account). The merchant is **not registered on v2 yet** (`get_merchant` -> `null`, `get_bonds` -> `[]`) |
+
+**tUSDC is a mock token that this team deployed for the testnet; it is not a real stablecoin and
+has no backing.** On mainnet the allow-list would hold the token account of the issuer's native USDC
+(read its account id and `ft_metadata` from the issuer, do not take it from this README), which is a
+new deployment because the list is fixed at init. Nothing is deployed on mainnet.
+
+**What has and has not been run on v2.** Run and recorded: the deployment above, and two failing
+calls with the new function-call keys, which show the keys are scoped to v2 and the contract refuses
+cleanly: `register_receipt` for an order that does not exist (relayer key) -> `ERR_NO_ORDER`, tx
+`9CNgE7gV126NSPSdBuNQZzc3jaSLLE3Jx1nsF7VkYWEP`; `claim` for an order that does not exist (alice's key)
+-> `ERR_NO_ORDER`, tx `HqLPDJDYsKqrsdYY8DNzjdf5bQ91RH9kjMdTDLY98asE`. **Not run: the merchant setup
+and every flow in `docs/STABLECOIN.md` section 12 (L2-L14), so there is no live v2 fixture and no
+`replay/v2` transcript yet.** Those steps start with transactions that need the shop's (and bob's)
+full-access keys, which the session that did this round could not read; `docs/runbook.md` lists the
+exact commands that are left. The gas constants (20/15 Tgas), the 0.5 NEAR storage deposit and the
+payout-failure behaviour are still unmeasured on testnet; the callbacks and the failed-payout restore
+are covered by the 90 unit tests only.
+
+- Build: `npm run build:contract:v2` -> `contract-v2/res/bot_promises_v2.wasm` (see the table).
+- Tests (run 2026-11-10): `npm run test:contract:v2` -> `90 passed`; `npm run test:contract` (v1) ->
+  `16 passed`; `npm run test:js` -> 159 tests, all passed; `npm run verify:fixtures` unchanged
+  (`ALL VERIFIED (3 real bundles + 1 tampered (correctly rejected) + 2 SIMULATED ...)`).
 - NEP-141 bonds: a merchant adds a bond in an allowed token with `ft_transfer_call` and
   `{"add_bond":{}}`; the market credits `sender_id` only. The design text is the spec
   (`docs/STABLECOIN.md` sections 4-5). NEAR stays `token = null`.
@@ -177,8 +205,10 @@ wasm on testnet and no live transaction. Nothing in this section describes a run
   charges a fee on transfer, rebases or freezes accounts breaks the books; adding a token means a new
   deployment. The design's NEP-145 command hints and the exact v2 surface are in
   `docs/STABLECOIN.md`; `docs/CHANGE-REQUESTS.md` CR-4 lists every deliberate v1 -> v2 break.
-- Build notes, the fail-without-feature spot checks and the honest "not done" list (no live runs) are
-  at the end of `docs/STABLECOIN.md`.
+- Build notes, the fail-without-feature spot checks, the deployment record and the list of live runs
+  that are still open are at the end of `docs/STABLECOIN.md`.
+- Recording a v2 run: `node app/scripts/record-transcript.mjs A123-nn A124-nn`. Against a v2 contract it writes `fixtures/live/a123-v2.json`, `a124-v2.json`, `a123-v2-tampered.json` and
+  `fixtures/replay/transcript-v2.json`, never the v1 files; `npm run demo:replay:v2` replays it.
 
 ## Contract surface (v1, deployed)
 | Method | Kind | Who | Effect |
@@ -196,7 +226,7 @@ wasm on testnet and no live transaction. Nothing in this section describes a run
 
 Errors are the frozen strings in `docs/plan/INTERFACES.md` section 6 (`ERR_BAD_SIGNATURE`, `ERR_NO_RECEIPT_FOR_BYTES`, `ERR_ALREADY_CLAIMED`, and so on). Every state change emits an `EVENT_JSON` log (NEP-297 shape) with standard `botpromise`.
 
-### Contract surface (v2, `v-next, not deployed yet`)
+### Contract surface (v2, deployed at `v2.cbp-sm1110.testnet`)
 | Method | Kind | Who | Effect |
 | --- | --- | --- | --- |
 | `new(owner, allowed_tokens?, min_order_ttl_ms?)` | init | deployer | allow-list (<= 8, no duplicates) and the TTL floor; both arguments optional, so `{"owner":"x"}` works |
@@ -248,8 +278,10 @@ The plan and `docs/plan/skeleton/` (the contract and the `app/lib` / `app/script
 
 Round 2026-11-10 (stablecoin v2): DeepSeek V4.1 Flash built `contract-v2/`, the client helpers, the
 page changes and the tests; Claude Sonnet 5.5 wrote the design (`docs/STABLECOIN.md`), then reviewed and
-fixed the build (section 18 there lists what it changed); Claude Opus 5.5 does the final review and the operator deploys. This round ran locally only:
-no v2 account, deploy or live testnet call was made, and no browser was opened.
+fixed the build (section 18 there lists what it changed); Claude Opus 5.5 did the final review and, as operator, the
+testnet deploys (tUSDC, `v2.cbp-sm1110.testnet`, keys, funding). A later Claude Sonnet 5.5 session pointed the client
+defaults at v2, made two function-call-key calls on v2 and re-ran the test suites; it could not read the shop's full-access
+key, so the merchant setup and the live v2 flows were not run (see the stablecoin section). No browser was opened.
 
 ## Libraries
 near-sdk 5.30.1, hex 0.4.3 (Rust); near-api-js 7.4.0, @nearai/inference-sdk 0.3.0, express 5.3.0 (Node); cargo-near 0.23.0, near-cli-rs 0.31.1.
@@ -262,15 +294,15 @@ ZeroInit repo: https://github.com/SmtDcs/zeroinit
 ```
 
 ## What this is not
-- Mainnet, NEAR Intents. The deployed demo bond is testnet NEAR. The NEP-141 stablecoin path
-  (`contract-v2/`, tUSDC mock) is built and tested but **v-next, not deployed**; tUSDC is a mock and
-  mainnet would use native USDC.
+- Mainnet, NEAR Intents. Everything runs on testnet. The NEP-141 stablecoin path is deployed on
+  testnet (`v2.cbp-sm1110.testnet` with the mock `sm1110-tusdc.testnet`), but its end-to-end runs are not
+  recorded yet; tUSDC is a mock, mainnet would use the issuer's native USDC and is not deployed.
 - On-chain TDX quote verification: the attestation is checked off chain by `npm run attest`, and the contract trusts the owner's signer registry.
 - E2EE or private chat: a claim reveals the reply bytes on chain by the shopper's choice; we do not call this private.
 - Wallet login for the shopper: the demo keeps a claim-only function-call key on the laptop and labels it.
 - Order expiry, release of unclaimed reservations, multi-kind tokens (discount, replacement) and
-  disputes **on the deployed v1 contract**. v2 implements expiry, `release_expired` and NEP-141
-  bonds in `contract-v2/`, but it is not deployed.
+  disputes **on the v1 contract**. v2 implements expiry, `release_expired` and NEP-141 bonds and is
+  deployed, but the expiry and release paths have only been run in unit tests, not on testnet.
 
 ## License
 MIT, see LICENSE.

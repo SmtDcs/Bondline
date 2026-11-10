@@ -2,6 +2,7 @@
 # Usage: RUN=03 bash app/scripts/demo-setup.sh                       (v1 / NEAR flow)
 #        V2=1 RUN=03 bash app/scripts/demo-setup.sh                  (v2, token bond + token orders)
 #        V2=1 DRY_RUN=1 RUN=03 bash app/scripts/demo-setup.sh        (print the commands, send nothing)
+#        V2=1 ASSET=near RUN=03 bash app/scripts/demo-setup.sh       (v2, NEAR bond + NEAR orders; no TOKEN_ID needed)
 # Needs CONTRACT_ID MERCHANT_ID BUYER_ID in the shell or .env; V2 also needs TOKEN_ID.
 #
 # Deviations from TASKS T13, recorded in docs/CHANGE-REQUESTS.md CR-2:
@@ -45,6 +46,32 @@ run() { # print the command when DRY_RUN=1, otherwise run it
     "$@"
   fi
 }
+
+ASSET="${ASSET:-token}"
+if [ "$V2" = "1" ] && [ "$ASSET" = "near" ]; then
+  # v2 NEAR path (docs/STABLECOIN.md L13): the merchant's storage balance, the NEAR bond (register_merchant,
+  # the record's storage cost comes out of the deposit) and two NEAR orders with a TTL.
+  TTL_MS="${TTL_MS:-1800000}"
+  NEAR_AMOUNT_YOCTO="${NEAR_AMOUNT_YOCTO:-2000000000000000000000000}"   # 2 NEAR
+  STORAGE_DEPOSIT="${STORAGE_DEPOSIT:-0.5 NEAR}"
+  NEAR_ARGS=(network-config testnet sign-with-legacy-keychain send)
+  run near contract call-function as-transaction "$CONTRACT_ID" storage_deposit \
+    json-args "{\"account_id\":\"$MERCHANT_ID\"}" prepaid-gas '30 Tgas' attached-deposit "$STORAGE_DEPOSIT" \
+    sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
+  # register_merchant answers ERR_MERCHANT_EXISTS the second time; a DRY_RUN just prints it
+  run near contract call-function as-transaction "$CONTRACT_ID" register_merchant json-args '{}' \
+    prepaid-gas '30 Tgas' attached-deposit '3 NEAR' sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
+  for ID in "A123-$RUN" "A124-$RUN"; do
+    run near contract call-function as-transaction "$CONTRACT_ID" register_order \
+      json-args "{\"order_id\":\"$ID\",\"buyer\":\"$BUYER_ID\",\"amount\":\"$NEAR_AMOUNT_YOCTO\",\"max_bps\":3000,\"ttl_ms\":\"$TTL_MS\"}" \
+      prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
+  done
+  if [ "$DRY_RUN" != "1" ]; then
+    near contract call-function as-read-only "$CONTRACT_ID" get_bonds json-args "{\"merchant\":\"$MERCHANT_ID\"}" network-config testnet now
+  fi
+  echo "Now set DEMO_ORDERS=\"A123-$RUN:Broken mug:2000,A124-$RUN:Late delivery:2000:naive\" in .env"
+  exit 0
+fi
 
 if [ "$V2" = "1" ]; then
   : "${TOKEN_ID:?missing TOKEN_ID (the NEP-141 token, set it in the shell or .env)}"

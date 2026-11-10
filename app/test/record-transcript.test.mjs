@@ -113,3 +113,24 @@ test('readJsonLines/lastLine select the logged claim-again attempt', (t) => {
   assert.throws(() => lastLine(lines, l => l.error === 'ERR_NOPE', 'ERR_NOPE'), /no ERR_NOPE line found/);
   assert.deepEqual(readJsonLines(path.join(dir, 'missing.log')), []);
 });
+
+// Stablecoin round: a v2 recording must never overwrite the recorded v1 fixtures.
+test('outputPaths: v1 keeps the committed names, v2 gets its own files', async () => {
+  const { outputPaths } = await import('../lib/transcript.mjs');
+  assert.deepEqual(outputPaths(1), {
+    bundleA: 'fixtures/live/a123.json', bundleB: 'fixtures/live/a124.json',
+    tampered: 'fixtures/live/a123-tampered.json', transcript: 'fixtures/replay/transcript.json',
+  });
+  assert.deepEqual(outputPaths(2), {
+    bundleA: 'fixtures/live/a123-v2.json', bundleB: 'fixtures/live/a124-v2.json',
+    tampered: 'fixtures/live/a123-v2-tampered.json', transcript: 'fixtures/replay/transcript-v2.json',
+  });
+  const v1 = Object.values(outputPaths(1));
+  assert.ok(Object.values(outputPaths(2)).every(p => !v1.includes(p)), 'no shared path');
+});
+
+test('merchantBeforeClaims keeps the token of a v2 token bond view', async () => {
+  const { merchantBeforeClaims: roll } = await import('../lib/transcript.mjs');
+  const rolled = roll({ token: 'tusdc.testnet', bond: '94000000', reserved: '0', paid_out: '6000000' }, [{ payout: '6000000', liability: '6000000' }]);
+  assert.deepEqual(rolled, { token: 'tusdc.testnet', bond: '100000000', reserved: '6000000', paid_out: '0' });
+});

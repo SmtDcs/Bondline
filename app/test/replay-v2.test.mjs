@@ -62,3 +62,9 @@ test('the recorded failed payout plays once, then the retry pays', async (t) => 
   assert.equal(paid.result.token, TOKEN.id);
   await assert.rejects(() => handlers.handleClaim(request), (e) => e.message === 'ERR_ALREADY_CLAIMED' && e.status === 400);
 });
+
+test('a non-default transcript names its own url for the page; the default one adds nothing', (t) => {
+  const { file } = v2Transcript(t);
+  assert.equal(makeReplay(file).publicConfig.transcript_url, `/fixtures/replay/${path.basename(file)}`);
+  assert.equal('transcript_url' in makeReplay('fixtures/replay/transcript.json').publicConfig, false);
+});

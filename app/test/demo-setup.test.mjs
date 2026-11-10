@@ -3,12 +3,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-const SCRIPT = 'app/scripts/demo-setup.sh';
+const SCRIPT = path.resolve('app/scripts/demo-setup.sh');
+// The script reads .env from its cwd. Run it in an empty directory so a developer's real .env (which now
+// has TOKEN_ID set) cannot change what the tests see; the explicit env below is the whole input.
+const EMPTY_CWD = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-setup-test-'));
 
 const runDry = (extra = {}) => {
-  const res = spawnSync('bash', [SCRIPT], {
+  const res = spawnSync('/bin/bash', [SCRIPT], {
     encoding: 'utf8',
+    cwd: EMPTY_CWD,
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
@@ -27,7 +34,7 @@ const runDry = (extra = {}) => {
 };
 
 test('the v2 script parses', () => {
-  const res = spawnSync('bash', ['-n', SCRIPT], { encoding: 'utf8' });
+  const res = spawnSync('/bin/bash', ['-n', SCRIPT], { encoding: 'utf8' });
   assert.equal(res.status, 0, res.stderr);
 });
 
@@ -67,4 +74,19 @@ test('V2 needs TOKEN_ID and says so', () => {
   const res = runDry({ TOKEN_ID: '' });
   assert.notEqual(res.status, 0);
   assert.match(res.stderr, /missing TOKEN_ID/);
+});
+
+test('V2 ASSET=near sets up the NEAR path: storage balance, NEAR bond, NEAR orders with a TTL, no token call', () => {
+  const res = runDry({ ASSET: 'near', TOKEN_ID: '' });
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.split('\n');
+  const at = (needle) => lines.findIndex(l => l.includes(needle));
+  const storage = at('storage_deposit json-args {"account_id":"cbp-shop-sm1110.testnet"}');
+  const merchant = at('register_merchant json-args {} prepaid-gas 30 Tgas attached-deposit 3 NEAR');
+  const orderA = at('"order_id":"A123-99"');
+  const orderB = at('"order_id":"A124-99"');
+  assert.ok(storage >= 0 && merchant > storage && orderA > merchant && orderB > orderA, 'storage, merchant, orders in order');
+  assert.match(lines[orderA], /"amount":"2000000000000000000000000","max_bps":3000,"ttl_ms":"1800000"/);
+  assert.doesNotMatch(lines[orderA], /"token"/, 'a NEAR order carries no token');
+  assert.doesNotMatch(res.stdout, /ft_transfer_call|registration_only|tusdc/, 'no token command at all');
 });

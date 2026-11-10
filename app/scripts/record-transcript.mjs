@@ -26,7 +26,7 @@ import { sha256Hex } from '../lib/nearai.mjs';
 import { detectApi, orderArgs, receiptArgs, previewClaimArgs } from '../lib/contract-api.mjs';
 import { ftMetadata } from '../lib/token.mjs';
 import {
-  newestBundle, tamperedCopy, chatTimePreview, merchantBeforeClaims, readJsonLines, lastLine, lastUserMessage,
+  newestBundle, tamperedCopy, chatTimePreview, merchantBeforeClaims, readJsonLines, lastLine, lastUserMessage, outputPaths,
 } from '../lib/transcript.mjs';
 
 const ORDER_ID_RE = /^[A-Za-z0-9-]{1,32}$/;
@@ -75,13 +75,18 @@ const provider = makeProvider(RPC_URL);
 // v2 keys orders and receipts by (merchant, id); v1 does not. Detect once, then use the matching args.
 const api = await detectApi(provider, contractId);
 console.log(`contract api ${api}`);
+const out = outputPaths(api); // v2 never overwrites the recorded v1 fixtures
 
 async function recordViews(orderId, bundle) {
   const order = await viewWithRetry(provider, contractId, 'get_order', orderArgs(api, null, orderId));
   if (!order) throw new Error(`get_order(${orderId}) is null`);
   const receipt = await viewWithRetry(provider, contractId, 'get_receipt', receiptArgs(api, order.merchant, bundle.response_hash));
   const previewLive = await viewWithRetry(provider, contractId, 'preview_claim', previewClaimArgs(api, order.merchant, orderId, bundle.response_b64));
-  const merchant = await viewWithRetry(provider, contractId, 'get_merchant', { merchant: order.merchant });
+  // The bond meter basis: the NEAR bond (get_merchant, v1 shape) or, for a v2 token order, that token's bond
+  // (get_bond has the same bond/reserved/paid_out fields plus `token`), so the roll-back below is in the right asset.
+  const merchant = api === 2 && order.token
+    ? await viewWithRetry(provider, contractId, 'get_bond', { merchant: order.merchant, token: order.token })
+    : await viewWithRetry(provider, contractId, 'get_merchant', { merchant: order.merchant });
   // The recorded run settled the order, so the live view is ERR_ALREADY_CLAIMED; rebuild what the
   // contract answered at chat time. If a future run is recorded while the order is still open, the
   // live view is the truthful one and is kept.
@@ -145,10 +150,10 @@ const transcript = {
   contract: contractId,
   ...(api === 2 ? { contract_api: 2, tokens } : {}),
   steps: [
-    { kind: 'chat', order_id: orderA, message: lastUserMessage(bundleA.bundle), bundle_file: 'fixtures/live/a123.json', register_tx: bundleA.bundle.chain.register_tx, views: { ...viewsA, get_merchant: preClaimMerchant, ...(tamperA ? { tamper: tamperA } : {}) } },
+    { kind: 'chat', order_id: orderA, message: lastUserMessage(bundleA.bundle), bundle_file: out.bundleA, register_tx: bundleA.bundle.chain.register_tx, views: { ...viewsA, get_merchant: preClaimMerchant, ...(tamperA ? { tamper: tamperA } : {}) } },
     ...(failedA ? [{ kind: 'claim-failed', order_id: orderA, tx: failedA.claim_tx, error: failedA.error }] : []),
     { kind: 'claim', order_id: orderA, claim_tx: claimA.claim_tx, result: claimA.result },
-    { kind: 'chat', order_id: orderB, message: lastUserMessage(bundleB.bundle), bundle_file: 'fixtures/live/a124.json', register_tx: bundleB.bundle.chain.register_tx, views: { ...viewsB, ...(tamperB ? { tamper: tamperB } : {}) } },
+    { kind: 'chat', order_id: orderB, message: lastUserMessage(bundleB.bundle), bundle_file: out.bundleB, register_tx: bundleB.bundle.chain.register_tx, views: { ...viewsB, ...(tamperB ? { tamper: tamperB } : {}) } },
     ...(failedB ? [{ kind: 'claim-failed', order_id: orderB, tx: failedB.claim_tx, error: failedB.error }] : []),
     { kind: 'claim', order_id: orderB, claim_tx: claimB.claim_tx, result: claimB.result },
     { kind: 'register-edited', order_id: orderA, tx: editedA.tx, error: editedA.error },
@@ -158,12 +163,12 @@ const transcript = {
 
 fs.mkdirSync(LIVE_DIR, { recursive: true });
 fs.mkdirSync(REPLAY_DIR, { recursive: true });
-fs.writeFileSync(path.join(LIVE_DIR, 'a123.json'), JSON.stringify(bundleA.bundle, null, 2) + '\n');
-fs.writeFileSync(path.join(LIVE_DIR, 'a124.json'), JSON.stringify(bundleB.bundle, null, 2) + '\n');
-fs.writeFileSync(path.join(LIVE_DIR, 'a123-tampered.json'), JSON.stringify(tamperedCopy(bundleA.bundle), null, 2) + '\n');
-fs.writeFileSync(path.join(REPLAY_DIR, 'transcript.json'), JSON.stringify(transcript, null, 2) + '\n');
+fs.writeFileSync(path.join(ROOT, out.bundleA), JSON.stringify(bundleA.bundle, null, 2) + '\n');
+fs.writeFileSync(path.join(ROOT, out.bundleB), JSON.stringify(bundleB.bundle, null, 2) + '\n');
+fs.writeFileSync(path.join(ROOT, out.tampered), JSON.stringify(tamperedCopy(bundleA.bundle), null, 2) + '\n');
+fs.writeFileSync(path.join(ROOT, out.transcript), JSON.stringify(transcript, null, 2) + '\n');
 
-console.log(`wrote fixtures/live/a123.json, fixtures/live/a124.json, fixtures/live/a123-tampered.json, fixtures/replay/transcript.json`);
+console.log(`wrote ${out.bundleA}, ${out.bundleB}, ${out.tampered}, ${out.transcript}`);
 console.log(`steps: ${transcript.steps.map(s => s.kind).join(',')}`);
 console.log(`claim ${orderA}: ${claimA.claim_tx}  payout ${claimA.result?.payout}`);
 console.log(`claim ${orderB}: ${claimB.claim_tx}  payout ${claimB.result?.payout}`);

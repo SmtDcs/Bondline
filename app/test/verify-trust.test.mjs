@@ -8,7 +8,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { sha256Hex } from '../lib/nearai.mjs';
-import { loadAttestations, signerRows, resolveContract, PINNED_CONTRACT } from '../lib/attestation.mjs';
+import { loadAttestations, signerRows, resolveContract, PINNED_CONTRACT, PINNED_V1_CONTRACT, KNOWN_CONTRACTS } from '../lib/attestation.mjs';
 
 const SCRIPT = path.resolve('app/verify.mjs');
 const load = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -60,11 +60,27 @@ const goodSigner = (extra = {}) => ({
   added_at_ms: '1', expires_at_ms: String(Date.now() + 86_400_000), ...extra,
 });
 
-test('resolveContract: flag, then CONTRACT_ID, then the pinned deployment; the bundle is never consulted', () => {
-  assert.equal(PINNED_CONTRACT, 'cbp-sm1110.testnet');
-  assert.equal(resolveContract(undefined, {}), 'cbp-sm1110.testnet');
+test('resolveContract: flag, then CONTRACT_ID, then a bundle naming a known repo contract, then the pinned v2', () => {
+  assert.equal(PINNED_CONTRACT, 'v2.cbp-sm1110.testnet');
+  assert.equal(PINNED_V1_CONTRACT, 'cbp-sm1110.testnet');
+  assert.deepEqual(KNOWN_CONTRACTS, ['cbp-sm1110.testnet', 'v2.cbp-sm1110.testnet']);
+  assert.equal(resolveContract(undefined, {}), 'v2.cbp-sm1110.testnet');
   assert.equal(resolveContract(undefined, { CONTRACT_ID: 'mine.testnet' }), 'mine.testnet');
   assert.equal(resolveContract('flag.testnet', { CONTRACT_ID: 'mine.testnet' }), 'flag.testnet');
+  // The v1 fixtures name the v1 contract: they keep verifying against it without any flag.
+  assert.equal(resolveContract(undefined, {}, 'cbp-sm1110.testnet'), 'cbp-sm1110.testnet');
+  assert.equal(resolveContract(undefined, {}, 'v2.cbp-sm1110.testnet'), 'v2.cbp-sm1110.testnet');
+  // An unknown name in a bundle selects nothing; a flag or CONTRACT_ID still beats a known bundle name.
+  assert.equal(resolveContract(undefined, {}, 'evil-copy.testnet'), 'v2.cbp-sm1110.testnet');
+  assert.equal(resolveContract('flag.testnet', {}, 'cbp-sm1110.testnet'), 'flag.testnet');
+  assert.equal(resolveContract(undefined, { CONTRACT_ID: 'mine.testnet' }, 'cbp-sm1110.testnet'), 'mine.testnet');
+});
+
+test('a bundle that names the v1 repo contract is checked against v1 (history keeps verifying)', async (t) => {
+  const rpc = await stubRpc(t, { signer: goodSigner() });
+  const r = await runAsync([tmpBundle(t, { ...REAL, chain: { ...REAL.chain, contract: 'cbp-sm1110.testnet' } }), '--rpc', rpc.url]);
+  assert.deepEqual([...new Set(rpc.asked)], ['cbp-sm1110.testnet']);
+  assert.doesNotMatch(r.out, /^WARN/m);
 });
 
 test('a forged bundle naming the forger\'s own contract is checked against the pinned contract, with a warning', async (t) => {
@@ -72,7 +88,7 @@ test('a forged bundle naming the forger\'s own contract is checked against the p
   const rpc = await stubRpc(t, { signer: goodSigner() });
   const r = await runAsync([tmpBundle(t, forged), '--rpc', rpc.url]);
   assert.deepEqual([...new Set(rpc.asked)], [PINNED_CONTRACT], 'every view went to the pinned contract');
-  assert.match(r.out, /^WARN\s+bundle\.chain\.contract is evil-copy\.testnet but this check uses cbp-sm1110\.testnet/m);
+  assert.match(r.out, /^WARN\s+bundle\.chain\.contract is evil-copy\.testnet but this check uses v2\.cbp-sm1110\.testnet/m);
   assert.equal(r.status, 0, r.out);
   assert.equal(lastLine(r.out), 'VERIFIED');
 });

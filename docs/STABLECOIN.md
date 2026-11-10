@@ -1,6 +1,6 @@
 # Contract v2: stablecoin (NEP-141) support - design
 
-Status: **implemented in `contract-v2/` and the client, v-next, NOT deployed yet** (2026-11-10). No testnet account was created, no v2 wasm was deployed and no live run (L1-L14) was made. The build notes at the end record what was run locally and what was not. Every number marked *tune* is still a first guess that the live run must confirm.
+Status: **implemented in `contract-v2/` and the client, and deployed on testnet** as `v2.cbp-sm1110.testnet` with the mock token `sm1110-tusdc.testnet` (2026-11-10; section 19). L1 is done. **L2-L14 (the live flows) are not done yet**; section 19 says which step is blocked and why. Every number marked *tune* is still a first guess that the live run must confirm.
 
 Written by Claude Sonnet 5.5 (design). The build is meant for DeepSeek V4.1 Flash, with Claude Sonnet 5.5 reviewing and fixing, and Claude Opus 5.5 doing the final review and the testnet deploys as operator. `docs/plan/` is the locked original plan and is not edited; this file is the interface spec for v2, and the deviations from `docs/plan/INTERFACES.md` are listed in section 13 (to be copied into `docs/CHANGE-REQUESTS.md` as CR-4 when the build starts).
 
@@ -386,6 +386,8 @@ Docs (after the code and the live runs exist; none of this is edited by the desi
 
 ## 17. Build notes (2026-11-10, DeepSeek V4.1 Flash build)
 
+*Historical record of the build step. Its "not deployed" and "no live runs" statements were true then; section 19 has the current state.*
+
 What was built and run locally:
 
 - `contract-v2/` (new crate, `bot-promises-v2`), `contract/` untouched. `parse.rs` and `ecdsa.rs`
@@ -508,4 +510,70 @@ was checked by hand with `bash -n` and a `DRY_RUN=1` run); `verify:fixtures` -> 
 bundles + 1 tampered (correctly rejected) + 2 SIMULATED ...)`. New wasm: `contract-v2/res/bot_promises_v2.wasm`,
 299448 bytes, sha256 `399c5af66e90a5800658f86a25c29fa76c62018f7d77d40b47e139e71f9b08bd`
 (`cargo near build non-reproducible-wasm --no-abi`, run directly because `npm run` printed nothing under the
-slot wrapper). Still **not deployed**; no live run was made.
+slot wrapper). Not deployed at the time of this review (deployed afterwards, see section 19).
+
+## 19. Deployment and live-run status (2026-11-10, after the operator deploy)
+
+Source of each line: **[chain]** = read by RPC in the session that wrote this section; **[operator]** = the
+operator's deploy report, not repeated by me.
+
+### Deployed (L1 and the token)
+
+- **Token** `sm1110-tusdc.testnet` [chain: code hash `66d6fc0a1c29683a8802bda397e8448ead45c74df1d591cc5ddf2b6d213570c1`; `ft_metadata`: `Test USD Coin (testnet mock)`, symbol `tUSDC`, 6 decimals]. A mock. Deploy + init tx `2b3hMb4qHXo3XFan4y4gCG3zow5MEaQCzvg1eYrJgBDJ` [chain: success]. Owner-only mint; shop and alice hold 10000 tUSDC [chain: `ft_balance_of` = `10000000000` each], bob 0.
+- **Market** `v2.cbp-sm1110.testnet`. Created by `cbp-sm1110.testnet` after a 0.5 NEAR top-up from the shop (tx `CcwHujYu9zimDYV2yyvhvfGUDwfZktBVsSfW22PRdfez`), create tx `7w6riZo57TqQXaqSuY19aCkfCwxCKcmBL5f4A8c8CBVz`, funded 7 NEAR by the shop (tx `CbD75d7Ro1e4HmDFNrstxhXoZA31d8CxpvMisN8ug4z`), deploy + `new{owner, allowed_tokens [sm1110-tusdc.testnet], min_order_ttl_ms 120000}` tx `BY57K2VSfnuTg236uwVsa1frUJbyD2TyebYcFaJq1bA5` [chain: all four success]. `get_config` -> `{api:2, owner v2.cbp-sm1110.testnet, allowed_tokens [sm1110-tusdc.testnet], min_order_ttl_ms "120000", max_order_ttl_ms "31536000000", default_order_ttl_ms "2592000000"}` [chain]. On-chain `code_hash` = `399c5af66e90a5800658f86a25c29fa76c62018f7d77d40b47e139e71f9b08bd` = sha256 of `contract-v2/res/bot_promises_v2.wasm` (299448 bytes) [chain + local]. Balance about 7.2 NEAR, storage 300085 bytes [chain].
+- **Market registered on the token**: tx `9MfE4aApnDg6zH4XuTQoXEAuKm9D7Qqc8AFPFU3URnJn` [chain: success]; `storage_balance_of(market)` on the token = `{total: 1250000000000000000000, available: 0}` [chain].
+- **TEE signer on v2**: `add_signer` tx `B4GGMbPTthfEhztR5fXqN7iJFuZet9PCBADYwLeTtGDR` [chain: success]. `get_signers` has `5a0210f2…caff`, `provider_tee`, `z-ai/glm-5.3-flash`, attestation `520bedd1…6a65`, `expires_at_ms 1796035518568` (2026-11-30) [chain]. A first attempt failed because `add_signer` is not payable: attach `0 NEAR` (the command `npm run attest` prints already does; the runbook now says so).
+- **Function-call keys on v2**: shop `register_receipt` (tx `7E1q3roU8iSeTTzXqjvrLak1uN1qyFcgEd79e3jiXvYe`), alice `claim` (tx `5qygwdQQTorxucw9kojQSY1ZS7Z2zxJTYLdcZK9yWAie`) [chain: both success; the shop's key list shows a `register_receipt` key with receiver `v2.cbp-sm1110.testnet` next to the v1 one].
+- Function-call key smoke test (my own, with the keys from `.env`): shop relayer key `register_receipt` for a non-existent order -> failed with `ERR_NO_ORDER`, tx `9CNgE7gV126NSPSdBuNQZzc3jaSLLE3Jx1nsF7VkYWEP`; alice's key `claim` for a non-existent order -> failed with `ERR_NO_ORDER`, tx `HqLPDJDYsKqrsdYY8DNzjdf5bQ91RH9kjMdTDLY98asE` [chain: both recorded as failed, as intended]. This only shows that the keys are accepted by v2 and that the contract refuses an unknown order; it is not one of L2-L14.
+- Not registered on the token: `cbp-bob-sm1110.testnet`, on purpose (the failure-case account). Any other new account must be registered with `storage_deposit` on the token first (0.00125 NEAR at the mock's bound); the setup script does it for the merchant and the buyer.
+
+### Live runs L2-L14: status
+
+| Run | Status | Why |
+| --- | --- | --- |
+| L1 create / deploy / market registration / signer / keys | **done** (above) | |
+| L2 merchant storage deposit and the tUSDC bond | **not run** | needs a transaction signed with the shop's full-access key |
+| L3 wrong msg, L4 wrong token, L5 no storage balance | **not run** | L3 and L5 need a full-access key (shop or bob); L4(a) needs bob's key |
+| L6 token order, chat, claim | **not run** | `register_order` needs the shop's full-access key; chat, `register_receipt` and `claim` themselves use only the function-call keys in `.env` and the NEAR AI key and can be run as soon as an order exists |
+| L7 unregistered receiver, retry | **not run** | order for bob needs the shop's key; the retry needs bob's key (`storage_deposit` on the token) |
+| L8 injection cap in tUSDC | **not run** | same as L6 (second, naive order) |
+| L9 withdraw | **not run** | merchant full-access key |
+| L10 expiry and `release_expired` | **not run** | merchant key for the order; `release_expired` is callable by anyone but needs bob's key as designed |
+| L11 storage accounting | **not run** | merchant key |
+| L12 namespace | **not run** | needs alice's full-access key to register her as a second merchant |
+| L13 NEAR regression on v2 | **not run** | `register_merchant` and `register_order` need the shop's key |
+| L14 `verify` on a v2 bundle, `replay/v2` transcript | **not run** | there is no v2 bundle yet |
+
+The blocker is mechanical, not a decision: the session had only the two function-call secrets from
+`.env`. The shop, alice and bob full-access keys live in `~/.near-credentials`, which that sandbox
+does not allow reading, and near-cli could not complete TLS to the RPC from the sandbox (rustls
+certificate error through the proxy). Nothing was worked around. The operator (or any shell with the
+keychain) runs the merchant-side commands below; everything after the orders exist can be run with
+only `.env`.
+
+Merchant-side commands that are left (shop = `cbp-shop-sm1110.testnet`, `NEAR_RPC_URL=https://rpc.testnet.fastnear.com`):
+
+```bash
+V2=1 RUN=21 bash app/scripts/demo-setup.sh              # tUSDC path: storage deposit, shop and alice on the token, 100 tUSDC bond, 2 orders A123-21 / A124-21
+V2=1 ASSET=near RUN=22 bash app/scripts/demo-setup.sh   # NEAR path on v2: storage deposit (a second one just adds to the balance), register_merchant 3 NEAR, 2 orders A123-22 / A124-22
+# failure case L7: an order for bob (not registered on the token), then claim from bob's key, see runbook
+```
+
+Then in `.env` set `DEMO_ORDERS` to the new ids, run `npm run dev`, drive chat and claim through
+`/api/chat` and `/api/demo/claim` (or the page), and record with
+`node app/scripts/record-transcript.mjs A123-21 A124-21`. For a v2 contract it writes
+`fixtures/live/a123-v2.json`, `a124-v2.json`, `a123-v2-tampered.json` and
+`fixtures/replay/transcript-v2.json`; the recorded v1 files are never touched.
+
+### Client changes in this step (each has a test)
+
+- `app/lib/attestation.mjs`: `PINNED_CONTRACT` is now `v2.cbp-sm1110.testnet`; `PINNED_V1_CONTRACT` and `KNOWN_CONTRACTS` keep v1 as history. `resolveContract(flag, env, bundleContract)` takes a bundle's own `chain.contract` only if it is one of those two, so the v1 fixtures still verify against v1 with no flag and a forged bundle still cannot choose a contract. `app/test/verify-trust.test.mjs` (the two old assertions about the default were updated to v2; two tests added). Checked live: `node app/verify.mjs fixtures/live/a123.json --rpc https://rpc.testnet.fastnear.com` -> 13 PASS rows, `VERIFIED`, against v1.
+- `app/lib/transcript.mjs` `outputPaths(api)` and `app/scripts/record-transcript.mjs`: a v2 recording writes `-v2` files, so it can no longer overwrite the recorded v1 fixtures (before this change it would have). For a token order the meter basis is `get_bond(merchant, token)`, and `merchantBeforeClaims` keeps the `token` field. `app/lib/replay.mjs` adds `transcript_url` to the config for a non-default transcript, `app/server.mjs` accepts `REPLAY_FILE`, `npm run demo:replay:v2`, and the page shows a token row from a recorded token bond view. Tests: `record-transcript`, `replay-v2`, `web-stablecoin`.
+- `app/scripts/demo-setup.sh`: `V2=1 ASSET=near` sets up the NEAR path on v2. Test in `app/test/demo-setup.test.mjs`. The four existing `demo-setup` tests now call `/bin/bash` and run in an empty working directory (they failed under a sandbox that blocks PATH lookup, and one depended on `.env` having no `TOKEN_ID`); the assertions are unchanged.
+- The RPC default in the code (`https://test.rpc.fastnear.com`) was left as it is; `.env` sets `NEAR_RPC_URL`. Use `https://rpc.testnet.fastnear.com` on a machine where the old host flakes.
+
+### Numbers (run 2026-11-10)
+
+`contract-v2` `cargo test` -> `90 passed; 0 failed`; `contract` -> `16 passed; 0 failed`;
+`node --test app/test/*.test.mjs` -> `# tests 159  # pass 159  # fail 0`; `npm run verify:fixtures` ->
+`ALL VERIFIED (3 real bundles + 1 tampered (correctly rejected) + 2 SIMULATED (fake key, not TEE evidence))`.

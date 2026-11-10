@@ -2,8 +2,9 @@
 // Usage: node app/verify.mjs <bundle.json> [--offline] [--contract <id>] [--rpc <url>]
 // Off-chain re-check of a receipt bundle, then (unless --offline) the on-chain views.
 // Exit code 0 = every check passed, 1 = at least one failed.
-// The contract checked is --contract, then $CONTRACT_ID, then the deployed cbp-sm1110.testnet: NEVER the
-// contract named inside the bundle (a forged bundle could point at the forger's own contract).
+// The contract checked is --contract, then $CONTRACT_ID, then the contract the bundle names only if it is one of
+// the two repo deployments (v1 cbp-sm1110.testnet history, v2 v2.cbp-sm1110.testnet), then the pinned v2. Any other
+// name in the bundle is ignored (a forged bundle could point at the forger's own contract).
 // A SIMULATED bundle (fake, publicly known key) ends in SIMULATED, never in VERIFIED.
 import fs from 'node:fs';
 import { checkBundle } from './lib/nearai.mjs';
@@ -25,9 +26,9 @@ else console.log('SIMULATED  bundle.simulated=true: signed with a fake, publicly
 if (!args.includes('--offline')) {
   try {
     const { makeProvider, view } = await import('./lib/near.mjs');
-    const contractId = resolveContract(flag('--contract'));
+    const contractId = resolveContract(flag('--contract'), process.env, bundle.chain?.contract);
     if (bundle.chain?.contract && bundle.chain.contract !== contractId) {
-      console.log(`WARN  bundle.chain.contract is ${bundle.chain.contract} but this check uses ${contractId} (${PINNED_CONTRACT} is the deployed contract); the bundle's own claim is ignored`);
+      console.log(`WARN  bundle.chain.contract is ${bundle.chain.contract} but this check uses ${contractId} (${PINNED_CONTRACT} is the current contract); the bundle's own claim is ignored`);
     }
     const provider = makeProvider(flag('--rpc') ?? process.env.NEAR_RPC_URL ?? 'https://test.rpc.fastnear.com');
     // v2 keys orders and receipts by (merchant, id). The merchant is a CLI/env input, never guessed

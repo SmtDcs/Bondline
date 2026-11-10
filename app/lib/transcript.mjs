@@ -76,7 +76,8 @@ export function merchantBeforeClaims(finalMerchant, claims) {
     reserved += BigInt(liability);
     paidOut -= BigInt(payout);
   }
-  return { bond: bond.toString(), reserved: reserved.toString(), paid_out: paidOut.toString() };
+  // A v2 token bond view (get_bond) carries `token`; keep it so the page shows the right asset.
+  return { ...(finalMerchant.token !== undefined ? { token: finalMerchant.token } : {}), bond: bond.toString(), reserved: reserved.toString(), paid_out: paidOut.toString() };
 }
 
 export function readJsonLines(file) {
@@ -95,4 +96,19 @@ export function lastUserMessage(bundle) {
   const user = [...(request.messages ?? [])].reverse().find(m => m.role === 'user');
   if (!user) throw new Error('the request bytes carry no user message');
   return user.content;
+}
+
+/**
+ * Where the recorder writes. The v1 run is recorded history (fixtures/live/a123.json ...,
+ * fixtures/replay/transcript.json) and must never be overwritten by a v2 recording, so a v2 contract
+ * gets its own file names.
+ */
+export function outputPaths(api) {
+  const v = api === 2 ? '-v2' : '';
+  return {
+    bundleA: `fixtures/live/a123${v}.json`,
+    bundleB: `fixtures/live/a124${v}.json`,
+    tampered: `fixtures/live/a123${v}-tampered.json`,
+    transcript: `fixtures/replay/transcript${v}.json`,
+  };
 }

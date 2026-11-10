@@ -163,7 +163,7 @@ export function recordedTamperViews(views, editedHash) {
 }
 
 /** T19: the transcript is public demo data, served by app/server.mjs from /fixtures. */
-export async function loadReplayTranscript(url = '/fixtures/replay/transcript.json') {
+export async function loadReplayTranscript(url = CFG?.transcript_url ?? '/fixtures/replay/transcript.json') {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`transcript HTTP ${res.status}`);
   REPLAY_TRANSCRIPT = await res.json();
@@ -271,7 +271,9 @@ export async function refreshBondMeter() {
   // Pre-claim meter, rolled forward claim by claim (replayMeterView).
   if (OFFLINE && CFG.mode === 'replay') {
     const merchant = replayMeterView(REPLAY_TRANSCRIPT, REPLAY_CLAIMED);
-    renderBondMeter($('bond-meter'), merchant);
+    // A v2 token recording stores that token's bond (get_bond shape, has `token`): show it as a token row.
+    if (merchant?.token) renderBondMeter($('bond-meter'), null, { bonds: [merchant], tokens: CFG.tokens ?? [] });
+    else renderBondMeter($('bond-meter'), merchant);
     return merchant;
   }
   const merchant = await rpcView('get_merchant', { merchant: CFG.merchantId });
