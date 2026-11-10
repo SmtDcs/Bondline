@@ -1,6 +1,8 @@
 // T11 review fixes: input validation, order ownership/status, chat-id sanitising, edit guard.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { KeyPair } from 'near-api-js';
 import { makeRelayer, parseDemoOrders, safeChatId } from '../lib/relayer.mjs';
 
@@ -138,4 +140,111 @@ test('the naive flag (not the id prefix) sets the prompt: A124-* stays honest un
   const naiveA123 = await capturedRequest('A123-04:Broken mug:2000:naive,A124-04:Late delivery:2000', 'A123-04');
   assert.match(naiveA123.messages[0].content, /partial refund of 10000 basis points/);
   assert.ok(naiveA123.messages[0].content.includes(NAIVE_SENTENCES[0]));
+});
+
+// --- T18: claims.log / merchant.log (the replay transcript reads them back) -------------------
+
+/** A throwaway data/ directory so the tests never touch the real gitignored logs. */
+function tempDataDir(t) {
+  const dir = fs.mkdtempSync(path.join('app/test', '.relayer-logs-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+const fakeRelayer = (dataDir, finalCall) => makeRelayer(cfg(), {
+  provider: {}, merchant: {}, buyer: {}, dataDir, callFinal: finalCall,
+});
+
+const logLines = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+
+const editedBundle = () => ({
+  response_b64: Buffer.from('PROMISE|refund|order=A123-01|bps=2000', 'utf8').toString('base64'),
+  response_hash: '00'.repeat(32),
+  signature: { text: `z-ai/glm-5.3-flash:${'11'.repeat(32)}:${'00'.repeat(32)}`, signature: '22'.repeat(64), signing_address: '33'.repeat(32), signature_kind: 'provider_tee' },
+});
+
+test('handleClaim appends one claims.log line after a successful claim', async (t) => {
+  const dataDir = tempDataDir(t);
+  const r = fakeRelayer(dataDir, async (_account, contractId, method, args) => {
+    assert.equal(contractId, CONTRACT_ID);
+    assert.equal(method, 'claim');
+    assert.deepEqual(args, { order_id: 'A123-01', response_b64: 'AAAA' });
+    return { txHash: 'ClaimTx111', value: { ok: true, payout: '400000000000000000000000' } };
+  });
+
+  const out = await r.handleClaim({ order_id: 'A123-01', response_b64: 'AAAA' });
+  assert.equal(out.claim_tx, 'ClaimTx111');
+  assert.equal(out.explorer, 'https://testnet.nearblocks.io/txns/ClaimTx111');
+  assert.deepEqual(logLines(path.join(dataDir, 'claims.log')), [{
+    order_id: 'A123-01',
+    claim_tx: 'ClaimTx111',
+    result: { ok: true, payout: '400000000000000000000000' },
+  }]);
+});
+
+test('handleClaim logs the ERR_ALREADY_CLAIMED attempt (claimed order) and still throws', async (t) => {
+  const dataDir = tempDataDir(t);
+  const r = fakeRelayer(dataDir, async () => {
+    throw Object.assign(new Error('tx ClaimTx222 failed: Smart contract panicked: ERR_ALREADY_CLAIMED'), { txHash: 'ClaimTx222' });
+  });
+
+  await assert.rejects(
+    () => r.handleClaim({ order_id: 'A123-01', response_b64: 'AAAA' }),
+    (e) => e.txHash === 'ClaimTx222' && /ERR_ALREADY_CLAIMED/.test(e.message),
+  );
+  assert.deepEqual(logLines(path.join(dataDir, 'claims.log')), [{
+    order_id: 'A123-01',
+    claim_tx: 'ClaimTx222',
+    error: 'ERR_ALREADY_CLAIMED',
+  }]);
+});
+
+test('a claims.log write failure only console.errors: the paid claim still returns', async (t) => {
+  const dataDir = tempDataDir(t);
+  fs.mkdirSync(path.join(dataDir, 'claims.log')); // appendFileSync -> EISDIR
+  const logged = [];
+  const realError = console.error;
+  console.error = (...args) => logged.push(args.join(' '));
+  t.after(() => { console.error = realError; });
+  const r = fakeRelayer(dataDir, async () => ({ txHash: 'ClaimTx333', value: { ok: true } }));
+
+  const out = await r.handleClaim({ order_id: 'A123-01', response_b64: 'AAAA' });
+  assert.equal(out.claim_tx, 'ClaimTx333');
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /log write failed \(claims\.log\)/);
+});
+
+test('handleRegisterEdited appends the merchant.log line on success', async (t) => {
+  const dataDir = tempDataDir(t);
+  const r = fakeRelayer(dataDir, async (_account, _contractId, method) => {
+    assert.equal(method, 'register_receipt');
+    return { txHash: 'EditTx111', value: { ok: true } };
+  });
+
+  const out = await r.handleRegisterEdited({ order_id: 'A123-01', bundle: editedBundle(), edit: { from: 'bps=2000', to: 'bps=3000' } });
+  assert.equal(out.txHash, 'EditTx111');
+  assert.deepEqual(logLines(path.join(dataDir, 'merchant.log')), [{
+    kind: 'register-edited',
+    order_id: 'A123-01',
+    tx: 'EditTx111',
+    error: null,
+  }]);
+});
+
+test('handleRegisterEdited appends the merchant.log line on ERR_BAD_SIGNATURE', async (t) => {
+  const dataDir = tempDataDir(t);
+  const r = fakeRelayer(dataDir, async () => {
+    throw Object.assign(new Error('tx EditTx222 failed: Smart contract panicked: ERR_BAD_SIGNATURE'), { txHash: 'EditTx222' });
+  });
+
+  await assert.rejects(
+    () => r.handleRegisterEdited({ order_id: 'A123-01', bundle: editedBundle(), edit: { from: 'bps=2000', to: 'bps=3000' } }),
+    (e) => e.txHash === 'EditTx222' && /ERR_BAD_SIGNATURE/.test(e.message),
+  );
+  assert.deepEqual(logLines(path.join(dataDir, 'merchant.log')), [{
+    kind: 'register-edited',
+    order_id: 'A123-01',
+    tx: 'EditTx222',
+    error: 'ERR_BAD_SIGNATURE',
+  }]);
 });

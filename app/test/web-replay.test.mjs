@@ -32,7 +32,15 @@ const CONFIG = {
   model: readBundle(chatSteps[0].bundle_file).model,
   orders,
 };
+const PRE_CLAIM_MERCHANT = chatSteps[0].views.get_merchant;
 const MERCHANT = chatSteps.at(-1).views.get_merchant;
+const near = (yocto) => (Number(BigInt(yocto) / 10n ** 21n) / 1000).toFixed(3);
+const meterText = (m) => [
+  'bond', `${near(m.bond)} NEAR`,
+  'reserved', `${near(m.reserved)} NEAR`,
+  'free', `${near(BigInt(m.bond) - BigInt(m.reserved))} NEAR`,
+  'paid_out', `${near(m.paid_out)} NEAR`,
+];
 
 const jsonResponse = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
@@ -91,7 +99,8 @@ const submit = (els) => els['chat-form'].listeners.submit({ preventDefault() {} 
 
 test('?offline=1 replay runs every beat from the transcript, with no testnet call', async () => {
   const { els, body } = fakePage();
-  let claims = 0;
+  const claimed = new Set();
+  let claimPosts = 0;
   const { calls, restore } = stubFetch((call) => {
     if (call.url === '/api/config') return jsonResponse(CONFIG);
     if (call.url === '/fixtures/replay/transcript.json') return jsonResponse(transcript);
@@ -105,9 +114,11 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
       });
     }
     if (call.url === '/api/demo/claim') {
-      claims += 1;
-      if (claims === 1) {
-        const step = claimSteps.find(s => s.order_id === JSON.parse(call.opts.body).order_id);
+      claimPosts += 1;
+      const { order_id } = JSON.parse(call.opts.body);
+      if (!claimed.has(order_id)) {
+        claimed.add(order_id);
+        const step = claimSteps.find(s => s.order_id === order_id);
         return jsonResponse({ ok: true, result: step.result, claim_tx: step.claim_tx, explorer: explorerTx(step.claim_tx) });
       }
       return jsonResponse({ error: 'ERR_ALREADY_CLAIMED', detail: 'replay: already claimed', tx: null }, 400);
@@ -124,7 +135,7 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
   });
 
   try {
-    await import('../../web/app.js?replay-offline');
+    const app = await import('../../web/app.js?replay-offline');
     await waitFor(() => els['order-select'].children.length === chatSteps.length);
 
     // Orange badge with the transcript date, contract link, orders from the steps.
@@ -137,40 +148,65 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
     // The first order is selected and its recorded message pre-filled.
     assert.equal(els['order-select'].value, chatSteps[0].order_id);
     assert.equal(els['chat-input'].value, chatSteps[0].message);
-    els['order-select'].value = chatSteps[1].order_id;
-    els['order-select'].listeners.change();
-    assert.equal(els['chat-input'].value, chatSteps[1].message);
 
-    // Bond meter comes from the recorded get_merchant view (7.2 bond, 4.8 reserved, 5.8 paid out).
-    assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), [
-      'bond', '7.200 NEAR', 'reserved', '4.800 NEAR', 'free', '2.400 NEAR', 'paid_out', '5.800 NEAR',
-    ]);
+    // The initial bond meter is the first chat step's PRE-CLAIM view (8.2 bond / 6.0 reserved).
+    assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), meterText(PRE_CLAIM_MERCHANT));
+    assert.notDeepEqual(PRE_CLAIM_MERCHANT, MERCHANT);
 
-    // Chat beat: the pre-filled injection message is sent, the recorded reply comes back.
+    // Honest chat beat: the recorded reply comes back with the pre-claim BINDING badge.
     await submit(els);
-    const chatPost = calls.find(c => c.url === '/api/chat');
-    assert.deepEqual(JSON.parse(chatPost.opts.body), { order_id: chatSteps[1].order_id, message: chatSteps[1].message });
-    const bot = els['chat-log'].children[1];
+    let chatPost = calls.find(c => c.url === '/api/chat');
+    assert.deepEqual(JSON.parse(chatPost.opts.body), { order_id: chatSteps[0].order_id, message: chatSteps[0].message });
+    let bot = els['chat-log'].children[1];
     assert.equal(bot.statusBadge.className, 'badge binding');
-    assert.equal(bot.statusBadge.textContent, 'BINDING · claimable 0.600 NEAR · token 100% → paid 30% (cap)');
-    assert.equal(bot.children[0].children.at(-1).textContent, `PROMISE|refund|order=${chatSteps[1].order_id}|bps=10000`);
+    assert.equal(bot.statusBadge.textContent, 'BINDING · claimable 0.400 NEAR');
+    assert.equal(bot.children[0].children.at(-1).textContent, `PROMISE|refund|order=${chatSteps[0].order_id}|bps=2000`);
     assert.ok(bot.claimButton, 'a BINDING bubble on the replay server is claimable');
 
-    // Claim beat: recorded payout, then the second click is the recorded ERR_ALREADY_CLAIMED.
-    await bot.claimButton.listeners.click();
-    assert.equal(claims, 1);
-    assert.equal(body.children.at(-1).textContent, 'paid 0.600 NEARclaim tx');
-    assert.equal(body.children.at(-1).children[1].href, explorerTx(claimSteps[1].claim_tx));
-    await bot.claimButton.listeners.click();
-    assert.equal(claims, 2);
-    assert.equal(bot.statusBadge.className, 'badge error');
-    assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
-
-    // Tamper beat: the edited bytes have no receipt; still no testnet call.
+    // Tamper beat (before the claim, as recorded): the transcript's tamper views drive the badge.
+    const editedB64 = app.tamperResponseB64(bot.bundle.response_b64);
+    const editedHash = await app.sha256Hex(Uint8Array.from(Buffer.from(editedB64, 'base64')));
+    assert.equal(chatSteps[0].views.tamper.response_hash, editedHash, 'the transcript records exactly the page edit');
     await bot.tamperButton.listeners.click();
     assert.equal(bot.statusBadge.className, 'badge error');
     assert.equal(bot.statusBadge.textContent, 'ERR_NO_RECEIPT_FOR_BYTES');
     assert.equal(bot.tamperResult.children[0].textContent, 'ERR_NO_RECEIPT_FOR_BYTES');
+
+    // Claim beat: recorded payout. Offline replay must show the post-claim ERR_ALREADY_CLAIMED,
+    // just like live mode, instead of re-rendering the chat-time BINDING view.
+    await bot.claimButton.listeners.click();
+    assert.equal(claimPosts, 1);
+    assert.equal(body.children.at(-1).textContent, 'paid 0.400 NEARclaim tx');
+    assert.equal(body.children.at(-1).children[1].href, explorerTx(claimSteps[0].claim_tx));
+    assert.equal(bot.statusBadge.className, 'badge error');
+    assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
+    // After a claim the meter switches to the last recorded (post-run) view.
+    assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), meterText(MERCHANT));
+
+    // The second click is the replay server's 400 ERR_ALREADY_CLAIMED.
+    await bot.claimButton.listeners.click();
+    assert.equal(claimPosts, 2);
+    assert.equal(bot.statusBadge.className, 'badge error');
+    assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
+
+    // Injection chat beat: the pre-filled naive message is sent, the capped reply comes back.
+    els['order-select'].value = chatSteps[1].order_id;
+    els['order-select'].listeners.change();
+    assert.equal(els['chat-input'].value, chatSteps[1].message);
+    await submit(els);
+    chatPost = calls.filter(c => c.url === '/api/chat').at(-1);
+    assert.deepEqual(JSON.parse(chatPost.opts.body), { order_id: chatSteps[1].order_id, message: chatSteps[1].message });
+    bot = els['chat-log'].children.at(-1);
+    assert.equal(bot.statusBadge.className, 'badge binding');
+    assert.equal(bot.statusBadge.textContent, 'BINDING · claimable 0.600 NEAR · token 100% → paid 30% (cap)');
+    assert.equal(bot.children[0].children.at(-1).textContent, `PROMISE|refund|order=${chatSteps[1].order_id}|bps=10000`);
+
+    // Injection claim: recorded payout, then the recorded ERR_ALREADY_CLAIMED badge.
+    await bot.claimButton.listeners.click();
+    assert.equal(claimPosts, 3);
+    assert.equal(body.children.at(-1).textContent, 'paid 0.600 NEARclaim tx');
+    assert.equal(body.children.at(-1).children[1].href, explorerTx(claimSteps[1].claim_tx));
+    assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
 
     // Merchant beat: the recorded failed registration with its tx.
     await els['btn-register-edited'].listeners.click();
@@ -188,11 +224,16 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
   }
 });
 
-test('replayBadgeText and replayMessageFor read the transcript fields', async () => {
+test('replay helpers read the transcript fields (initial meter, final meter, recorded tamper)', async () => {
   const app = await import('../../web/app.js?replay-helpers');
   assert.equal(app.replayBadgeText({ recorded_at: '2026-11-10T04:54:32.622Z' }), 'REPLAY of a real testnet run recorded 2026-11-10');
   assert.equal(app.replayBadgeText(null), 'REPLAY of a real testnet run');
   assert.equal(app.replayMessageFor(transcript, chatSteps[0].order_id), chatSteps[0].message);
   assert.equal(app.replayMessageFor(transcript, 'NOPE-99'), null);
+  assert.deepEqual(app.replayInitialMerchantView(transcript), PRE_CLAIM_MERCHANT);
   assert.deepEqual(app.replayMerchantView(transcript), MERCHANT);
+  const tamper = chatSteps[0].views.tamper;
+  assert.ok(tamper, 'the transcript records a tamper view');
+  assert.deepEqual(app.recordedTamperViews(chatSteps[0].views, tamper.response_hash), tamper);
+  assert.equal(app.recordedTamperViews(chatSteps[0].views, '0'.repeat(64)), null);
 });

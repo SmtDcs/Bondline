@@ -62,12 +62,17 @@ export function makeRelayer(cfg, deps = {}) {
   // Overridable so tests can assert the exact request bytes without a paid NEAR AI call.
   const buildBytes = deps.buildRequestBytes ?? buildRequestBytes;
   const chatOnce = deps.chatExact ?? chatExact;
+  const finalCall = deps.callFinal ?? callFinal;
   const history = new Map(); // order_id -> [{role, content}]
-  const dataDir = 'data';
+  const dataDir = deps.dataDir ?? 'data';
   const bundleDir = path.join(dataDir, 'bundles');
   fs.mkdirSync(bundleDir, { recursive: true });
   // T18: one JSON line per claim / register-edited attempt, read back by app/scripts/record-transcript.mjs.
-  const appendLog = (file, entry) => fs.appendFileSync(path.join(dataDir, file), JSON.stringify(entry) + '\n');
+  // A log write must never turn a paid-out claim (or a recorded failed registration) into an API error.
+  const appendLog = (file, entry) => {
+    try { fs.appendFileSync(path.join(dataDir, file), JSON.stringify(entry) + '\n'); }
+    catch (e) { console.error(`log write failed (${file}): ${e.message}`); }
+  };
 
   async function handleChat({ order_id, message } = {}) {
     requireOrderId(order_id);
@@ -101,7 +106,7 @@ export function makeRelayer(cfg, deps = {}) {
     };
     const failed = checkBundle(bundle).filter(r => !r.ok);
     if (failed.length) throw Object.assign(new Error('LOCAL_CHECK_FAILED'), { status: 502, detail: JSON.stringify(failed) });
-    const reg = await callFinal(merchant, cfg.contractId, 'register_receipt', {
+    const reg = await finalCall(merchant, cfg.contractId, 'register_receipt', {
       order_id, signed_text: signature.text, signature_hex: signature.signature, signer_public_key_hex: signature.signing_address,
     }, { tgas: 100 });
     bundle.chain.register_tx = reg.txHash;
@@ -112,9 +117,15 @@ export function makeRelayer(cfg, deps = {}) {
   }
 
   async function handleClaim({ order_id, response_b64 }) {
-    const r = await callFinal(buyer, cfg.contractId, 'claim', { order_id, response_b64 }, { tgas: 100 });
-    appendLog('claims.log', { order_id, claim_tx: r.txHash, result: r.value });
-    return { ok: true, result: r.value, claim_tx: r.txHash, explorer: explorerTx(r.txHash) };
+    try {
+      const r = await finalCall(buyer, cfg.contractId, 'claim', { order_id, response_b64 }, { tgas: 100 });
+      appendLog('claims.log', { order_id, claim_tx: r.txHash, result: r.value });
+      return { ok: true, result: r.value, claim_tx: r.txHash, explorer: explorerTx(r.txHash) };
+    } catch (e) {
+      // T18: the replay's `claim-again` step is the logged 400 (ERR_ALREADY_CLAIMED), not a literal.
+      appendLog('claims.log', { order_id, claim_tx: e.txHash ?? null, error: errCode(e) });
+      throw e;
+    }
   }
 
   /** The merchant tries to register an EDITED reply under the real TEE signature. Must fail with ERR_BAD_SIGNATURE. */
@@ -127,7 +138,7 @@ export function makeRelayer(cfg, deps = {}) {
     const editedHash = sha256Hex(Buffer.from(bytes.replace(edit.from, edit.to), 'utf8'));
     const editedText = bundle.signature.text.replace(bundle.response_hash, editedHash);
     try {
-      const r = await callFinal(merchant, cfg.contractId, 'register_receipt', {
+      const r = await finalCall(merchant, cfg.contractId, 'register_receipt', {
         order_id, signed_text: editedText, signature_hex: bundle.signature.signature, signer_public_key_hex: bundle.signature.signing_address,
       }, { tgas: 100 });
       appendLog('merchant.log', { kind: 'register-edited', order_id, tx: r.txHash, error: null });

@@ -4,6 +4,7 @@ const b64ToBytes = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
 const OFFLINE = new URLSearchParams(location.search).has('offline');
 let REPLAY_TRANSCRIPT = null; // T19: recorded run, loaded only when CFG.mode === 'replay'
+let REPLAY_CLAIMED = false; // T19: offline replay switches the meter to the recorded post-run state
 
 const BOND_REFRESH_MS = 10_000;
 // T16: the merchant's "register edited reply" attempt rewrites the token in the reply bytes.
@@ -59,9 +60,20 @@ export function replayMessageFor(transcript, orderId) {
   return (transcript?.steps ?? []).find(step => step.kind === 'chat' && step.order_id === orderId)?.message ?? null;
 }
 
-/** T19: the last recorded get_merchant view; offline replay renders the bond meter from it. */
+/** T19: the first chat step records the pre-claim get_merchant; offline replay starts from it. */
+export function replayInitialMerchantView(transcript) {
+  return (transcript?.steps ?? []).find(step => step.views?.get_merchant)?.views.get_merchant ?? null;
+}
+
+/** T19: the last recorded get_merchant is the final post-run view, shown after a claim. */
 export function replayMerchantView(transcript) {
   return [...(transcript?.steps ?? [])].reverse().find(step => step.views?.get_merchant)?.views.get_merchant ?? null;
+}
+
+/** T19: the recorded Tamper outcome for exactly these edited bytes (the recorder stores the hash). */
+export function recordedTamperViews(views, editedHash) {
+  const tamper = views?.tamper;
+  return tamper && tamper.response_hash === editedHash ? tamper : null;
 }
 
 /** T19: the transcript is public demo data, served by app/server.mjs from /fixtures. */
@@ -136,9 +148,10 @@ export function renderBondMeter(el, merchant) {
 
 export async function refreshBondMeter() {
   if (!CFG) return null;
-  // T19: ?offline=1 replay must touch nothing but localhost: use the recorded merchant view.
+  // T19: ?offline=1 replay must touch nothing but localhost: use the recorded merchant views.
+  // Before the first claim that is the first chat step's pre-claim meter; afterwards the last one.
   if (OFFLINE && CFG.mode === 'replay') {
-    const merchant = replayMerchantView(REPLAY_TRANSCRIPT);
+    const merchant = REPLAY_CLAIMED ? replayMerchantView(REPLAY_TRANSCRIPT) : replayInitialMerchantView(REPLAY_TRANSCRIPT);
     renderBondMeter($('bond-meter'), merchant);
     return merchant;
   }
@@ -278,11 +291,18 @@ async function claim(row, btn) {
     // T17: the button stays clickable after a claim; a second click shows the 400 ERR_ALREADY_CLAIMED.
     btn.disabled = false;
     if (!failed) {
-      try {
-        const views = await bindingStatus(row.orderId, bundle.response_b64, row.views);
-        setBadge(row.statusBadge, badgeText(views));
-      } catch (err) {
-        setBadge(row.statusBadge, { cls: 'error', text: err.message });
+      if (OFFLINE && CFG?.mode === 'replay') {
+        // T19: live mode re-runs preview_claim after the claim and gets ERR_ALREADY_CLAIMED; the
+        // transcript's views were recorded before the claim, so show the same post-claim error.
+        REPLAY_CLAIMED = true;
+        setBadge(row.statusBadge, { cls: 'error', text: 'ERR_ALREADY_CLAIMED' });
+      } else {
+        try {
+          const views = await bindingStatus(row.orderId, bundle.response_b64, row.views);
+          setBadge(row.statusBadge, badgeText(views));
+        } catch (err) {
+          setBadge(row.statusBadge, { cls: 'error', text: err.message });
+        }
       }
     }
     await refreshBondMeter().catch(() => {});
@@ -308,14 +328,17 @@ async function tamper(row, btn) {
   try {
     const originalHash = row.bundle.response_hash ?? await sha256Hex(b64ToBytes(row.bundle.response_b64));
     const editedHash = await sha256Hex(b64ToBytes(editedB64));
-    // T19: offline replay must not touch testnet; in the recorded run the edited bytes had no receipt.
-    const offlineEdited = OFFLINE && CFG?.mode === 'replay'
-      ? { get_receipt: null, preview_claim: { ok: false, error: 'ERR_NO_RECEIPT_FOR_BYTES', token_bps: 0, paid_bps: 0, payout: '0' } }
-      : undefined;
+    // T19: offline replay must not touch testnet; use the Tamper outcome the transcript recorded
+    // for exactly these edited bytes (hash-checked, so a different edit is not silently "failed").
+    let offlineEdited;
+    if (OFFLINE && CFG?.mode === 'replay') {
+      offlineEdited = recordedTamperViews(row.views, editedHash);
+      if (!offlineEdited) throw new Error('no recorded tamper view for these bytes');
+    }
     const views = await bindingStatus(row.orderId, editedB64, offlineEdited);
-    // The edited bytes have no receipt: surface the contract's preview error (ERR_NO_RECEIPT_FOR_BYTES)
-    // instead of badgeText's "NOT A PROMISE" (which is for replies that were never registered at all).
-    const view = views.preview?.ok ? badgeText(views) : { cls: 'error', text: views.preview?.error ?? 'ERR_NO_RECEIPT_FOR_BYTES' };
+    // Surface the preview error (ERR_NO_RECEIPT_FOR_BYTES in the recorded run) instead of
+    // badgeText's "NOT A PROMISE" (which is for replies that were never registered at all).
+    const view = views.preview.ok ? badgeText(views) : { cls: 'error', text: views.preview.error };
     setBadge(row.statusBadge, view);
     showTamperResult(row, view, originalHash, editedHash);
   } catch (err) {
