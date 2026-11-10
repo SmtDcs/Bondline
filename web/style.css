@@ -55,6 +55,14 @@ header h1 {
 
 #mode-badge:empty { display: none; }
 
+/* T19: replay server badge (the orange "simulated" palette). */
+#mode-badge.replay {
+  background: var(--simulated-bg);
+  color: var(--simulated-ink);
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
 #contract-link a {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

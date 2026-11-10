@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
 const OFFLINE = new URLSearchParams(location.search).has('offline');
+let REPLAY_TRANSCRIPT = null; // T19: recorded run, loaded only when CFG.mode === 'replay'
 
 const BOND_REFRESH_MS = 10_000;
 // T16: the merchant's "register edited reply" attempt rewrites the token in the reply bytes.
@@ -45,6 +46,30 @@ export function badgeText({ receipt, preview }) {
 export async function loadConfig(url = '/api/config') {
   CFG = await (await fetch(url)).json();
   return CFG;
+}
+
+/** T19: the orange badge on the replay server; the date is the transcript's recorded_at. */
+export function replayBadgeText(transcript) {
+  const date = typeof transcript?.recorded_at === 'string' ? transcript.recorded_at.slice(0, 10) : '';
+  return date ? `REPLAY of a real testnet run recorded ${date}` : 'REPLAY of a real testnet run';
+}
+
+/** T19: the recorded message for an order (the input is pre-filled with it in replay mode). */
+export function replayMessageFor(transcript, orderId) {
+  return (transcript?.steps ?? []).find(step => step.kind === 'chat' && step.order_id === orderId)?.message ?? null;
+}
+
+/** T19: the last recorded get_merchant view; offline replay renders the bond meter from it. */
+export function replayMerchantView(transcript) {
+  return [...(transcript?.steps ?? [])].reverse().find(step => step.views?.get_merchant)?.views.get_merchant ?? null;
+}
+
+/** T19: the transcript is public demo data, served by app/server.mjs from /fixtures. */
+export async function loadReplayTranscript(url = '/fixtures/replay/transcript.json') {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`transcript HTTP ${res.status}`);
+  REPLAY_TRANSCRIPT = await res.json();
+  return REPLAY_TRANSCRIPT;
 }
 
 const NAIVE_LABEL = 'badly configured bot';
@@ -111,6 +136,12 @@ export function renderBondMeter(el, merchant) {
 
 export async function refreshBondMeter() {
   if (!CFG) return null;
+  // T19: ?offline=1 replay must touch nothing but localhost: use the recorded merchant view.
+  if (OFFLINE && CFG.mode === 'replay') {
+    const merchant = replayMerchantView(REPLAY_TRANSCRIPT);
+    renderBondMeter($('bond-meter'), merchant);
+    return merchant;
+  }
   const merchant = await rpcView('get_merchant', { merchant: CFG.merchantId });
   renderBondMeter($('bond-meter'), merchant);
   return merchant;
@@ -248,7 +279,7 @@ async function claim(row, btn) {
     btn.disabled = false;
     if (!failed) {
       try {
-        const views = await bindingStatus(row.orderId, bundle.response_b64);
+        const views = await bindingStatus(row.orderId, bundle.response_b64, row.views);
         setBadge(row.statusBadge, badgeText(views));
       } catch (err) {
         setBadge(row.statusBadge, { cls: 'error', text: err.message });
@@ -277,7 +308,11 @@ async function tamper(row, btn) {
   try {
     const originalHash = row.bundle.response_hash ?? await sha256Hex(b64ToBytes(row.bundle.response_b64));
     const editedHash = await sha256Hex(b64ToBytes(editedB64));
-    const views = await bindingStatus(row.orderId, editedB64);
+    // T19: offline replay must not touch testnet; in the recorded run the edited bytes had no receipt.
+    const offlineEdited = OFFLINE && CFG?.mode === 'replay'
+      ? { get_receipt: null, preview_claim: { ok: false, error: 'ERR_NO_RECEIPT_FOR_BYTES', token_bps: 0, paid_bps: 0, payout: '0' } }
+      : undefined;
+    const views = await bindingStatus(row.orderId, editedB64, offlineEdited);
     // The edited bytes have no receipt: surface the contract's preview error (ERR_NO_RECEIPT_FOR_BYTES)
     // instead of badgeText's "NOT A PROMISE" (which is for replies that were never registered at all).
     const view = views.preview?.ok ? badgeText(views) : { cls: 'error', text: views.preview?.error ?? 'ERR_NO_RECEIPT_FOR_BYTES' };
@@ -345,6 +380,7 @@ async function onSubmit(event) {
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
     bot.row.bundle = data.bundle;
     bot.row.orderId = orderId;
+    bot.row.views = data.views; // T19 replay: the recorded views drive ?offline=1
     bot.bubble.bundle = data.bundle;
     renderReply(bot.bubble, data.reply);
     if (data.explorer) bot.links.append(link('receipt tx', data.explorer));
@@ -354,7 +390,7 @@ async function onSubmit(event) {
     updateRegisterEdited();
     // T17: every bot bubble can be tampered with, whatever the BINDING check said.
     addTamper(bot.row);
-    const views = await bindingStatus(orderId, data.bundle.response_b64);
+    const views = await bindingStatus(orderId, data.bundle.response_b64, data.views);
     const view = badgeText(views);
     setBadge(bot.status, view);
     if (view.cls === 'binding') addClaim(bot.row);
@@ -367,7 +403,14 @@ async function onSubmit(event) {
 
 async function init() {
   const cfg = await loadConfig();
-  $('mode-badge').textContent = cfg.mode;
+  if (cfg.mode === 'replay') {
+    await loadReplayTranscript().catch(() => {}); // badge/pre-fill fall back gracefully without it
+    const badge = $('mode-badge');
+    badge.className = 'badge replay';
+    badge.textContent = replayBadgeText(REPLAY_TRANSCRIPT);
+  } else {
+    $('mode-badge').textContent = cfg.mode;
+  }
   $('contract-link').replaceChildren(link(cfg.contractId, `https://testnet.nearblocks.io/address/${cfg.contractId}`));
   const select = $('order-select');
   for (const order of cfg.orders ?? []) {
@@ -375,8 +418,18 @@ async function init() {
     option.value = order.order_id;
     select.append(option);
   }
+  if (!select.value && select.children.length > 0) select.value = select.children[0].value;
   $('chat-form').addEventListener('submit', onSubmit);
   $('btn-register-edited').addEventListener('click', onRegisterEdited);
+  if (cfg.mode === 'replay') {
+    // T19: the recorded run's message is pre-filled for the selected order (handleChat ignores text).
+    const prefill = () => {
+      const message = replayMessageFor(REPLAY_TRANSCRIPT, select.value);
+      if (message) $('chat-input').value = message;
+    };
+    select.addEventListener('change', prefill);
+    prefill();
+  }
   updateRegisterEdited();
   await refreshBondMeter().catch((err) => {
     const el = $('bond-meter');
