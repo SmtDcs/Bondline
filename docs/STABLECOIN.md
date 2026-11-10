@@ -610,9 +610,12 @@ for the live build) and `app/scripts/demo-setup.sh` attaches `$REGISTER_ORDER_DE
 **F2: the v2 account still has a full-access key.** `view_access_key_list` (public RPC, 2026-11-10)
 returns one `FullAccess` key each for `v2.cbp-sm1110.testnet` and the tUSDC mock `sm1110-tusdc.testnet`
 (`get_owner` on the mock returns itself). The guarantees in this design hold for the code; the operator can
-still redeploy the market or mint tUSDC. README Trust boundaries now says so. The owner actions of the
-market do not need that key (the owner is the contract itself), so deleting it after the live runs is
-possible; it has not been deleted.
+still redeploy the market or mint tUSDC. README Trust boundaries now says so. Correction (re-check F1): the market's owner is the
+account itself, so `add_signer` / `remove_signer` (`predecessor == owner`, exactly 1 yoctoNEAR) need a full-access
+key on `v2.cbp-sm1110.testnet`; function-call keys cannot attach a deposit. The earlier sentence that the key could be
+deleted after the live runs was wrong. Deleting it freezes the signer registry (no renewal or revocation; after the
+signer expires on 2026-11-30 every new `register_receipt` fails with `ERR_SIGNER_EXPIRED`). The contract has no
+owner-transfer method, so it needs one, or a DAO / multisig owner, before that key is deleted. It has not been deleted.
 
 ## 21. Redeploy and the live run L1-L14 (2026-11-10, Claude Sonnet 5.5; redeploy by the operator, Claude Opus 5.5)
 
