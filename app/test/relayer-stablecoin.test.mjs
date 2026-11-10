@@ -8,7 +8,7 @@ import { KeyPair } from 'near-api-js';
 import { makeRelayer, errCode } from '../lib/relayer.mjs';
 import { buildRequestBytes } from '../lib/nearai.mjs';
 import { wrap } from '../lib/http.mjs';
-import { explorerTx } from '../lib/near.mjs';
+import { explorerTx, payoutFailedValue } from '../lib/near.mjs';
 
 const CONTRACT_ID = 'v2.cbp-sm1110.testnet';
 const MERCHANT_ID = 'cbp-shop-sm1110.testnet';
@@ -169,4 +169,12 @@ test('errCode reads the new v2 error strings', () => {
     assert.equal(errCode(new Error(`tx 1 failed: Smart contract panicked: ${code}`)), code);
   }
   assert.equal(errCode(new Error('ERR_PAYOUT_FAILED: the order is open again')), 'ERR_PAYOUT_FAILED');
+});
+
+
+test('payoutFailedValue reads the callback result without treating a normal claim as a failure', () => {
+  assert.equal(payoutFailedValue(undefined), null);
+  assert.equal(payoutFailedValue(null), null);
+  assert.equal(payoutFailedValue({ ok: true, payout: '1' }), null);
+  assert.deepEqual(payoutFailedValue({ ok: false, error: 'ERR_PAYOUT_FAILED', token: TOKEN_ID }), { ok: false, error: 'ERR_PAYOUT_FAILED', token: TOKEN_ID });
 });

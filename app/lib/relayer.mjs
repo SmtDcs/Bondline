@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildRequestBytes, chatExact, fetchSignature, checkBundle, sha256Hex } from './nearai.mjs';
-import { makeProvider, accountFromKey, callFinal, explorerTx } from './near.mjs';
+import { makeProvider, accountFromKey, callFinal, explorerTx, payoutFailedValue } from './near.mjs';
 import { detectApi, orderArgs, claimArgs, API_V1, API_V2 } from './contract-api.mjs';
 import { ftMetadata, registrationHint } from './token.mjs';
 import { formatAmount } from './amount.mjs';
@@ -174,10 +174,11 @@ export function makeRelayer(cfg, deps = {}) {
       const r = await finalCall(buyer, cfg.contractId, 'claim', claimArgs(api, cfg.merchantId, order_id, response_b64), { tgas: 100 });
       // A successful transaction is not a successful payout: the contract's callback returns ok:false
       // when the transfer failed and put the order back to open. The shopper can retry after fixing it.
-      if (r.value && r.value.ok === false) {
-        const error = r.value.error ?? 'ERR_PAYOUT_FAILED';
+      const failed = payoutFailedValue(r.value);
+      if (failed) {
+        const error = failed.error ?? 'ERR_PAYOUT_FAILED';
         appendLog('claims.log', { order_id, claim_tx: r.txHash, error: 'ERR_PAYOUT_FAILED' });
-        const hint = registrationHint(r.value.token ?? cfg.tokenId ?? null, cfg.buyerId);
+        const hint = registrationHint(failed.token ?? cfg.tokenId ?? null, cfg.buyerId);
         throw Object.assign(new Error(`ERR_PAYOUT_FAILED: ${error}; the order is open again, retry after fixing it`), {
           status: 502,
           txHash: r.txHash,

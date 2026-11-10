@@ -396,7 +396,7 @@ What was built and run locally:
 - `npm run test:contract:v2` -> `test result: ok. 88 passed; 0 failed` (the 4 `parse.rs` tests and
   84 v2 tests; the 12 ported v1 tests are among them, `get_order`/`claim`/`preview_claim` now take
   `merchant`). `npm run test:contract` (v1) still -> `test result: ok. 16 passed`.
-- `npm run test:js` -> `# tests 147  # pass 147  # fail 0` (the 101 old tests plus 46 new ones).
+- `npm run test:js` -> `# tests 148  # pass 148  # fail 0` (the 101 old tests plus 47 new ones).
 - `npm run verify:fixtures` -> `ALL VERIFIED (3 real bundles + 1 tampered (correctly rejected) + 2 SIMULATED (fake key, not TEE evidence))` (unchanged).
 - The wasm was built, not deployed. `contract-v2/res/` holds the build output like `contract/res/`.
 

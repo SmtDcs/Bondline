@@ -53,6 +53,15 @@ export async function callFinal(account, contractId, methodName, args, { tgas = 
   return { txHash, value, outcome };
 }
 
+/**
+ * A successful transaction can still be a failed payout: v2 `claim`/`withdraw_bond` return the
+ * callback's ClaimPreview, and `ok:false` means the transfer failed and the books were put back.
+ * Returns the failing value (so callers can read `error`/`token`) or null.
+ */
+export function payoutFailedValue(value) {
+  return value && typeof value === 'object' && value.ok === false ? value : null;
+}
+
 export function explorerTx(txHash) {
   return `https://testnet.nearblocks.io/txns/${txHash}`;
 }

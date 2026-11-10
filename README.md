@@ -37,7 +37,7 @@ Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys, no Rust for 
    - Offline: `npm run verify -- fixtures/live/a123.json --offline` ends in `VERIFIED` (off-chain checks only; it also requires the signing key to be in an attestation record).
 4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the recorded badges and the Claim button show up: the plain URL http://127.0.0.1:8787 runs the same replay but asks testnet for the BINDING check, and both recorded orders are already claimed on chain, so it shows `ERR_ALREADY_CLAIMED` (the honest live state) instead of the claimable badges. `?offline=1` touches nothing but localhost.
 5. (Rust 1.95 installed) `npm run test:contract` - see `test result: ok. 16 passed; 0 failed`.
-6. `npm run test:js` - see `# fail 0` (147 tests).
+6. `npm run test:js` - see `# fail 0` (148 tests).
 7. (v2, not deployed) `npm run test:contract:v2` - see `test result: ok. 88 passed`.
 
 ## Verify each claim
@@ -145,7 +145,7 @@ wasm on testnet and no live transaction. Nothing in this section describes a run
 - Build: `npm run build:contract:v2` -> `contract-v2/res/bot_promises_v2.wasm` (301572 bytes,
   sha256 `7fda513ae25f2639c12c5a4a7bdc6b8fc2127d29ac09dd4f2b7f4f43490a42e2`).
 - Tests: `npm run test:contract:v2` -> `88 passed`; the v1 suite is still `16 passed`; `npm run
-  test:js` -> `147 passed`; `npm run verify:fixtures` is unchanged.
+  test:js` -> `148 passed`; `npm run verify:fixtures` is unchanged.
 - NEP-141 bonds: a merchant adds a bond in an allowed token with `ft_transfer_call` and
   `{"add_bond":{}}`; the market credits `sender_id` only. The design text is the spec
   (`docs/STABLECOIN.md` sections 4-5). NEAR stays `token = null`.
