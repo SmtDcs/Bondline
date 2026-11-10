@@ -24,7 +24,14 @@
         "signingAlgo": "ed25519",
         "signingAddress": "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff"
       }
-    ]
+    ],
+    "record_file": "fixtures/attestation/z-ai_glm-5.3-flash-ed25519-2026-11-10.json",
+    "record_sha256": "dce1c116d18c97c135b41301cb67314447df9787cd0d6f583c51129efc782365"
   },
-  "chain": null
+  "chain": {
+    "network": "testnet",
+    "contract": "cbp-sm1110.testnet",
+    "register_tx": "312Nsq849PLo2uygrBj3K2hcHz2tWUAfJofDqLrvkAXN",
+    "claim_tx": null
+  }
 }
