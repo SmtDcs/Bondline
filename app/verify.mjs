@@ -43,7 +43,7 @@ if (!args.includes('--offline')) {
     // Simulated keys have no attestation record: only the registration row applies.
     rows.push(...(simulated ? signerRows(signer, bundle, records).slice(0, 4) : signerRows(signer, bundle, records)));
     const receipt = await view(provider, contractId, 'get_receipt', receiptArgs(api, merchant, bundle.response_hash));
-    if (receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
+    if (api === 2 && receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
     if (api === 2) {
       const allowed = config?.allowed_tokens ?? [];
       for (const tokenId of allowed) {
