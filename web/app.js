@@ -7,7 +7,8 @@ export const replyFromBundle = (bundle) =>
 const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
 const OFFLINE = new URLSearchParams(location.search).has('offline');
 let REPLAY_TRANSCRIPT = null; // T19: recorded run, loaded only when CFG.mode === 'replay'
-let REPLAY_CLAIMED = false; // T19: offline replay switches the meter to the recorded post-run state
+const REPLAY_CLAIMED = new Set(); // T19: orders claimed so far in the offline replay (drives the bond meter)
+let TAMPERED_ROW = null; // the bubble the shopper last clicked Tamper on: the merchant's edit targets it
 
 const BOND_REFRESH_MS = 10_000;
 // T16: the merchant's "register edited reply" attempt rewrites the token in the reply bytes.
@@ -66,6 +67,29 @@ export function replayMessageFor(transcript, orderId) {
 /** T19: the first chat step records the pre-claim get_merchant; offline replay starts from it. */
 export function replayInitialMerchantView(transcript) {
   return (transcript?.steps ?? []).find(step => step.views?.get_merchant)?.views.get_merchant ?? null;
+}
+
+/** T19: the merchant meter after exactly the replayed claims (`claimed` = Set of order ids).
+ *  The first chat step's get_merchant is the pre-claim state, the last one is already after every
+ *  recorded claim. A partial state (one claim of two) is the final view rolled back by the claims not
+ *  replayed yet: bond and paid_out by the recorded payout, reserved by the order's recorded liability
+ *  (the same arithmetic as the recorder's merchantBeforeClaims). */
+export function replayMeterView(transcript, claimed) {
+  const initial = replayInitialMerchantView(transcript);
+  const final = replayMerchantView(transcript);
+  if (!initial || !final) return final ?? initial;
+  const steps = transcript?.steps ?? [];
+  const pending = steps.filter(s => s.kind === 'claim' && s.result?.payout && !claimed?.has(s.order_id));
+  if (pending.length === 0) return final;
+  let bond = BigInt(final.bond), reserved = BigInt(final.reserved), paid = BigInt(final.paid_out);
+  for (const c of pending) {
+    const order = steps.find(s => s.kind === 'chat' && s.order_id === c.order_id)?.views?.get_order;
+    if (!order?.liability) return initial; // cannot roll back exactly: fall back to the pre-claim view
+    bond += BigInt(c.result.payout);
+    reserved += BigInt(order.liability);
+    paid -= BigInt(c.result.payout);
+  }
+  return { ...final, bond: bond.toString(), reserved: reserved.toString(), paid_out: paid.toString() };
 }
 
 /** T19: the last recorded get_merchant is the final post-run view, shown after a claim. */
@@ -152,9 +176,9 @@ export function renderBondMeter(el, merchant) {
 export async function refreshBondMeter() {
   if (!CFG) return null;
   // T19: ?offline=1 replay must touch nothing but localhost: use the recorded merchant views.
-  // Before the first claim that is the first chat step's pre-claim meter; afterwards the last one.
+  // Pre-claim meter, rolled forward claim by claim (replayMeterView).
   if (OFFLINE && CFG.mode === 'replay') {
-    const merchant = REPLAY_CLAIMED ? replayMerchantView(REPLAY_TRANSCRIPT) : replayInitialMerchantView(REPLAY_TRANSCRIPT);
+    const merchant = replayMeterView(REPLAY_TRANSCRIPT, REPLAY_CLAIMED);
     renderBondMeter($('bond-meter'), merchant);
     return merchant;
   }
@@ -233,21 +257,40 @@ function showToast(text, href, cls = 'toast') {
   return el;
 }
 
-function lastBotRow() {
+/** All bot bubbles that carry a bundle, oldest first. */
+function botRowsWithBundle() {
   const log = $('chat-log');
-  if (!log) return null;
-  const rows = [...log.children];
-  for (let i = rows.length - 1; i >= 0; i--) {
-    if (String(rows[i].className).includes('bot')) return rows[i];
-  }
-  return null;
+  return log ? [...log.children].filter(r => String(r.className).includes('bot') && r.bundle) : [];
 }
 
-/** T16: the merchant can only act on the last bot bubble, and only once it has a bundle. */
+/** The reply text of a bundle, or '' when the bytes are not a chat completion. */
+function safeReply(bundle) {
+  try { return replyFromBundle(bundle); } catch { return ''; }
+}
+
+/** The edit the merchant tries for one reply: its first `bps=<digits>` token with the leading digit
+ *  changed (same rule as tamperText, so `bps=2000` -> `bps=3000`). null when the reply has no token. */
+export function editForReply(reply) {
+  const m = /bps=(\d+)/.exec(String(reply ?? ''));
+  if (!m) return null;
+  const digits = m[1];
+  return { from: m[0], to: `bps=${digits[0] === '3' ? '2' : '3'}${digits.slice(1)}` };
+}
+
+/** The bubble the merchant's "Register an edited reply" acts on: the one the shopper last tampered
+ *  with; otherwise the newest bubble that carries the fixed edit token (the A123 reply of the demo);
+ *  otherwise the newest bubble with a bundle. Never just "the last bubble" when another one fits. */
+export function registerTargetRow() {
+  const rows = botRowsWithBundle();
+  if (TAMPERED_ROW && rows.includes(TAMPERED_ROW)) return TAMPERED_ROW;
+  return [...rows].reverse().find(r => safeReply(r.bundle).includes(EDIT_FROM)) ?? rows.at(-1) ?? null;
+}
+
+/** T16: the merchant acts on one chosen bubble (registerTargetRow), once it has a bundle. */
 function updateRegisterEdited() {
   const btn = $('btn-register-edited');
   if (!btn) return;
-  btn.disabled = !lastBotRow()?.bundle;
+  btn.disabled = !registerTargetRow();
 }
 
 function addMerchantEntry(entry) {
@@ -297,7 +340,7 @@ async function claim(row, btn) {
       if (OFFLINE && CFG?.mode === 'replay') {
         // T19: live mode re-runs preview_claim after the claim and gets ERR_ALREADY_CLAIMED; the
         // transcript's views were recorded before the claim, so show the same post-claim error.
-        REPLAY_CLAIMED = true;
+        REPLAY_CLAIMED.add(row.orderId);
         setBadge(row.statusBadge, { cls: 'error', text: 'ERR_ALREADY_CLAIMED' });
       } else {
         try {
@@ -327,6 +370,8 @@ async function tamper(row, btn) {
     showToast('nothing to tamper: the reply has no bps=', null, 'toast error');
     return;
   }
+  TAMPERED_ROW = row; // the merchant's edit attempt targets the bubble the shopper tampered with
+  updateRegisterEdited();
   btn.disabled = true;
   try {
     const originalHash = row.bundle.response_hash ?? await sha256Hex(b64ToBytes(row.bundle.response_b64));
@@ -364,7 +409,7 @@ function showTamperResult(row, view, originalHash, editedHash) {
 }
 
 async function onRegisterEdited() {
-  const row = lastBotRow();
+  const row = registerTargetRow();
   if (!row?.bundle) return;
   const btn = $('btn-register-edited');
   btn.disabled = true;
@@ -372,7 +417,7 @@ async function onRegisterEdited() {
     const res = await fetch('/api/demo/register-edited', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: row.orderId, bundle: row.bundle, edit: { from: EDIT_FROM, to: EDIT_TO } }),
+      body: JSON.stringify({ order_id: row.orderId, bundle: row.bundle, edit: editForReply(safeReply(row.bundle)) ?? { from: EDIT_FROM, to: EDIT_TO } }),
     });
     const data = await res.json();
     addMerchantEntry(merchantLogEntry(data, res.status));

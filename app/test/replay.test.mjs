@@ -14,6 +14,9 @@ const make = () => makeReplay(TRANSCRIPT_FILE);
 const chatSteps = transcript.steps.filter(s => s.kind === 'chat');
 const claimStep = transcript.steps.find(s => s.kind === 'claim');
 const editedStep = transcript.steps.find(s => s.kind === 'register-edited');
+const recordedBundle = (orderId) => readBundle(chatSteps.find(c => c.order_id === orderId).bundle_file);
+const claimBytes = recordedBundle(claimStep.order_id).response_b64;
+const editedRequest = () => ({ order_id: editedStep.order_id, bundle: recordedBundle(editedStep.order_id), edit: { from: 'bps=2000', to: 'bps=3000' } });
 
 const call = (handler, body = {}) => new Promise((resolve) => {
   const res = {
@@ -72,7 +75,7 @@ test('handleChat answers ERR_NO_ORDER for an order that was not recorded', async
 
 test('handleClaim returns the recorded claim once, then ERR_ALREADY_CLAIMED', async () => {
   const { handlers } = make();
-  const first = await handlers.handleClaim({ order_id: claimStep.order_id, response_b64: 'ignored' });
+  const first = await handlers.handleClaim({ order_id: claimStep.order_id, response_b64: readBundle(chatSteps.find(c => c.order_id === claimStep.order_id).bundle_file).response_b64 });
   assert.deepEqual(first, {
     ok: true,
     result: claimStep.result,
@@ -85,17 +88,40 @@ test('handleClaim returns the recorded claim once, then ERR_ALREADY_CLAIMED', as
   );
   // A fresh replay server starts unclaimed again.
   assert.deepEqual(
-    await make().handlers.handleClaim({ order_id: claimStep.order_id }),
+    await make().handlers.handleClaim({ order_id: claimStep.order_id, response_b64: claimBytes }),
     first,
   );
 });
 
-test('handleRegisterEdited always loses with ERR_BAD_SIGNATURE and the recorded tx', async () => {
+test('handleRegisterEdited loses with ERR_BAD_SIGNATURE and the recorded tx for the recorded request', async () => {
   const { handlers } = make();
   await assert.rejects(
-    () => handlers.handleRegisterEdited({ order_id: editedStep.order_id, bundle: {}, edit: { from: 'bps=2000', to: 'bps=3000' } }),
+    () => handlers.handleRegisterEdited(editedRequest()),
     (e) => e.message === 'ERR_BAD_SIGNATURE' && e.status === 400 && e.txHash === editedStep.tx,
   );
+});
+
+test('audit: replay never fabricates an edited-reply outcome or borrows another order\'s tx', async () => {
+  const { handlers } = make();
+  const notRecorded = (e) => e.message === 'ERR_NOT_RECORDED' && e.status === 404 && e.txHash === undefined;
+  const other = chatSteps.find(c => c.order_id !== editedStep.order_id);
+  // another order (the demo-script click after the A124 chat): the A123-11 tx must not be returned
+  await assert.rejects(() => handlers.handleRegisterEdited({ order_id: other.order_id, bundle: recordedBundle(other.order_id), edit: { from: 'bps=10000', to: 'bps=30000' } }), notRecorded);
+  // empty / garbage bodies
+  await assert.rejects(() => handlers.handleRegisterEdited({}), (e) => e.message === 'ERR_BAD_REQUEST' && e.status === 400);
+  await assert.rejects(() => handlers.handleRegisterEdited({ order_id: '../x' }), (e) => e.message === 'ERR_BAD_REQUEST');
+  // right order, but a bundle that is not the recorded one, or an edit that is not in the bytes
+  await assert.rejects(() => handlers.handleRegisterEdited({ ...editedRequest(), bundle: {} }), notRecorded);
+  await assert.rejects(() => handlers.handleRegisterEdited({ ...editedRequest(), bundle: recordedBundle(other.order_id) }), notRecorded);
+  await assert.rejects(() => handlers.handleRegisterEdited({ ...editedRequest(), edit: { from: 'zzz', to: 'y' } }), notRecorded);
+  await assert.rejects(() => handlers.handleRegisterEdited({ ...editedRequest(), edit: undefined }), notRecorded);
+});
+
+test('audit: replay claim for other bytes is ERR_NO_RECEIPT_FOR_BYTES and consumes nothing', async () => {
+  const { handlers } = make();
+  await assert.rejects(() => handlers.handleClaim({ order_id: claimStep.order_id, response_b64: 'AAAA' }), (e) => e.message === 'ERR_NO_RECEIPT_FOR_BYTES' && e.status === 400);
+  await assert.rejects(() => handlers.handleClaim({ order_id: claimStep.order_id }), (e) => e.message === 'ERR_NO_RECEIPT_FOR_BYTES');
+  assert.equal((await handlers.handleClaim({ order_id: claimStep.order_id, response_b64: claimBytes })).ok, true);
 });
 
 test('the HTTP wrappers answer the INTERFACES 11 shapes', async () => {
@@ -108,7 +134,7 @@ test('the HTTP wrappers answer the INTERFACES 11 shapes', async () => {
   assert.equal(chat.body.register_tx, step.register_tx);
   assert.deepEqual(chat.body.views, step.views);
 
-  const firstClaim = await call(wrap(handlers.handleClaim), { order_id: claimStep.order_id, response_b64: 'x' });
+  const firstClaim = await call(wrap(handlers.handleClaim), { order_id: claimStep.order_id, response_b64: claimBytes });
   assert.equal(firstClaim.status, 200);
   assert.equal(firstClaim.body.ok, true);
   assert.equal(firstClaim.body.claim_tx, claimStep.claim_tx);
@@ -117,7 +143,7 @@ test('the HTTP wrappers answer the INTERFACES 11 shapes', async () => {
   assert.equal(second.status, 400);
   assert.equal(second.body.error, 'ERR_ALREADY_CLAIMED');
 
-  const edited = await call(wrap(handlers.handleRegisterEdited, () => {}), { order_id: editedStep.order_id });
+  const edited = await call(wrap(handlers.handleRegisterEdited, () => {}), editedRequest());
   assert.equal(edited.status, 400);
   assert.equal(edited.body.error, 'ERR_BAD_SIGNATURE');
   assert.equal(edited.body.tx, editedStep.tx);

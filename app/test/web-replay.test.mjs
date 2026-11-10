@@ -180,8 +180,9 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
     assert.equal(body.children.at(-1).children[1].href, explorerTx(claimSteps[0].claim_tx));
     assert.equal(bot.statusBadge.className, 'badge error');
     assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
-    // After a claim the meter switches to the last recorded (post-run) view.
-    assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), meterText(MERCHANT));
+    // Audit relayer-web-secrets-4: after ONE claim the meter shows only that claim (bond -0.4, reserved -0.6,
+    // paid_out +0.4), not the post-run view that already includes the A124 claim.
+    assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), ['bond', '7.800 NEAR', 'reserved', '5.400 NEAR', 'free', '2.400 NEAR', 'paid_out', '5.200 NEAR']);
 
     // The second click is the replay server's 400 ERR_ALREADY_CLAIMED.
     await bot.claimButton.listeners.click();
@@ -207,6 +208,8 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
     assert.equal(body.children.at(-1).textContent, 'paid 0.600 NEARclaim tx');
     assert.equal(body.children.at(-1).children[1].href, explorerTx(claimSteps[1].claim_tx));
     assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
+    // Both recorded claims replayed: now the meter is the recorded post-run view.
+    assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), meterText(MERCHANT));
 
     // Merchant beat: the recorded failed registration with its tx.
     await els['btn-register-edited'].listeners.click();

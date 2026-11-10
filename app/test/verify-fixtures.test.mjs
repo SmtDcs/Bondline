@@ -39,7 +39,7 @@ test('a good set exits 0 with the bundle count', (t) => {
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /PASS \(SIMULATED key\) fixtures\/simulated\/honest\.json/);
   assert.match(r.out, /PASS \(SIMULATED key\) fixtures\/simulated\/injection\.json/);
-  assert.equal(lastLine(r.out), 'ALL VERIFIED (2 bundles)');
+  assert.equal(lastLine(r.out), 'ALL VERIFIED (0 real bundles + 2 SIMULATED (fake key, not TEE evidence))');
 });
 
 test('a bad non-tampered bundle exits 1 with the first failed check', (t) => {

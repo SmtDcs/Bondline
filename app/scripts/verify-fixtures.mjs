@@ -6,19 +6,11 @@
 // simulated bundles print PASS (SIMULATED key). Exit 0 = every bundle behaved as expected (last line ALL VERIFIED (<n> bundles)), 1 = SOME FAILED.
 import fs from 'node:fs'; import path from 'node:path';
 import { checkBundle } from '../lib/nearai.mjs';
+import { loadAttestations, attestedSignerSet } from '../lib/attestation.mjs';
 
 const DIRS = ['fixtures/live', 'fixtures/simulated'];
 const ATTEST_DIR = 'fixtures/attestation';
-// signing addresses that an attestation record verified (verified[].signer.signingAddress)
-const attested = new Set();
-if (fs.existsSync(ATTEST_DIR) && fs.statSync(ATTEST_DIR).isDirectory()) {
-  for (const f of fs.readdirSync(ATTEST_DIR).filter(f => f.endsWith('.json')).sort()) {
-    try {
-      const rec = JSON.parse(fs.readFileSync(path.join(ATTEST_DIR, f), 'utf8'));
-      for (const v of rec.verified ?? []) if (v?.signer?.signingAddress) attested.add(String(v.signer.signingAddress).toLowerCase());
-    } catch { /* an unreadable record attests nothing */ }
-  }
-}
+const attested = attestedSignerSet(loadAttestations(ATTEST_DIR));
 const files = [];
 let failed = false;
 
@@ -79,6 +71,8 @@ if (files.length === 0) {
 }
 
 const simulatedCount = files.filter(f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')).simulated === true; } catch { return false; } }).length;
-if (!failed) console.log(`(${files.length - simulatedCount} real bundles, ${simulatedCount} SIMULATED)`);
-console.log(failed ? 'SOME FAILED' : `ALL VERIFIED (${files.length} bundles)`);
+const realCount = files.length - simulatedCount;
+// Real and simulated counts are never merged: SIMULATED bundles use a publicly known fake key and are not TEE evidence.
+const counts = `${realCount} real bundles${simulatedCount > 0 ? ` + ${simulatedCount} SIMULATED (fake key, not TEE evidence)` : ''}`;
+console.log(failed ? 'SOME FAILED' : `ALL VERIFIED (${counts})`);
 process.exit(failed ? 1 : 0);

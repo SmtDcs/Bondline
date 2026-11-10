@@ -34,7 +34,9 @@ export function parseDemoOrders(value = DEFAULT_DEMO_ORDERS) {
 export function loadConfig(env = process.env) {
   const need = ['CONTRACT_ID', 'MERCHANT_ID', 'RELAYER_SECRET_KEY', 'BUYER_ID', 'BUYER_CLAIM_SECRET_KEY', 'NEARAI_API_KEY'];
   for (const k of need) if (!env[k]) throw new Error(`missing env ${k} (see .env.example)`);
-  const orders = parseDemoOrders(env.DEMO_ORDERS ?? DEFAULT_DEMO_ORDERS);
+  // An empty/blank DEMO_ORDERS means "not set": use the default instead of starting with no orders.
+  const orders = parseDemoOrders(String(env.DEMO_ORDERS ?? '').trim() || DEFAULT_DEMO_ORDERS);
+  if (orders.length === 0) throw new Error('DEMO_ORDERS has no order: run demo-setup.sh and set order_id:label:policy_bps[,...] (see .env.example)');
   return {
     mode: 'live', network: 'testnet',
     rpcUrl: env.NEAR_RPC_URL ?? 'https://test.rpc.fastnear.com',
@@ -116,7 +118,10 @@ export function makeRelayer(cfg, deps = {}) {
     return { reply, bundle, register_tx: reg.txHash, explorer: explorerTx(reg.txHash) };
   }
 
-  async function handleClaim({ order_id, response_b64 }) {
+  async function handleClaim({ order_id, response_b64 } = {}) {
+    // Validate before a transaction is signed: a malformed request must never spend the claim key's gas allowance.
+    requireOrderId(order_id);
+    requireResponseB64(response_b64);
     try {
       const r = await finalCall(buyer, cfg.contractId, 'claim', { order_id, response_b64 }, { tgas: 100 });
       appendLog('claims.log', { order_id, claim_tx: r.txHash, result: r.value });
@@ -162,6 +167,14 @@ function badRequest(detail) {
 
 function requireOrderId(order_id) {
   if (typeof order_id !== 'string' || !ORDER_ID_RE.test(order_id)) throw badRequest('order_id must match ^[A-Za-z0-9-]{1,32}$');
+}
+
+const MAX_RESPONSE_B64_CHARS = 200_000;
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+function requireResponseB64(value) {
+  if (typeof value !== 'string' || value.length < 1 || value.length > MAX_RESPONSE_B64_CHARS || !BASE64_RE.test(value)) {
+    throw badRequest(`response_b64 must be a non-empty base64 string of at most ${MAX_RESPONSE_B64_CHARS} characters`);
+  }
 }
 
 function requireMessage(message) {

@@ -87,20 +87,40 @@ export function makeReplay(transcriptPath = 'fixtures/replay/transcript.json') {
     };
   }
 
-  /** First call per order returns the recorded claim; every later call is ERR_ALREADY_CLAIMED. */
-  async function handleClaim({ order_id } = {}) {
+  /** First call per order returns the recorded claim; every later call is ERR_ALREADY_CLAIMED.
+   *  Like the contract, the claim must be for the recorded bytes: other bytes get ERR_NO_RECEIPT_FOR_BYTES
+   *  and no recorded success is ever returned for them. */
+  async function handleClaim({ order_id, response_b64 } = {}) {
     requireOrderId(order_id);
     if (claimed.has(order_id)) throw fail('ERR_ALREADY_CLAIMED', 400);
     const step = claimByOrder.get(order_id);
-    if (!step) throw fail('ERR_NO_ORDER', 404);
+    const recorded = bundles.get(order_id);
+    if (!step || !recorded) throw fail('ERR_NO_ORDER', 404);
+    if (response_b64 !== recorded.bundle.response_b64) throw fail('ERR_NO_RECEIPT_FOR_BYTES', 400);
     claimed.add(order_id);
     return { ok: true, result: step.result, claim_tx: step.claim_tx, explorer: explorerTx(step.claim_tx) };
   }
 
-  /** The merchant's edited reply can never be registered: the recorded run lost with ERR_BAD_SIGNATURE. */
-  async function handleRegisterEdited({ order_id } = {}) {
-    const step = editSteps.find(s => s.order_id === order_id) ?? editSteps[0];
-    throw Object.assign(new Error('ERR_BAD_SIGNATURE'), { status: 400, txHash: step?.tx ?? null });
+  /**
+   * The merchant's edited reply can never be registered: the recorded run lost with ERR_BAD_SIGNATURE.
+   * That recorded outcome (and its tx) is only returned for the request it was recorded for: the same
+   * order, carrying the recorded bundle (same response hash) and an edit that exists in its bytes.
+   * Anything else is NOT_RECORDED (404): the replay never invents an outcome or borrows another order's tx.
+   */
+  async function handleRegisterEdited({ order_id, bundle, edit } = {}) {
+    requireOrderId(order_id);
+    const step = editSteps.find(s => s.order_id === order_id);
+    const recorded = bundles.get(order_id)?.bundle;
+    const notRecorded = (why) => Object.assign(new Error('ERR_NOT_RECORDED'), { status: 404, detail: `replay: ${why}` });
+    if (!step || !recorded) throw notRecorded(`no recorded edited-reply attempt for order ${order_id}`);
+    if (bundle?.response_hash !== recorded.response_hash || bundle?.response_b64 !== recorded.response_b64) {
+      throw notRecorded('the request bundle is not the recorded reply of this order');
+    }
+    if (typeof edit?.from !== 'string' || edit.from === '' || typeof edit?.to !== 'string'
+      || !Buffer.from(recorded.response_b64, 'base64').toString('utf8').includes(edit.from)) {
+      throw notRecorded('the edit is not in the recorded reply bytes');
+    }
+    throw Object.assign(new Error('ERR_BAD_SIGNATURE'), { status: 400, txHash: step.tx ?? null });
   }
 
   return { handlers: { handleChat, handleClaim, handleRegisterEdited }, publicConfig };

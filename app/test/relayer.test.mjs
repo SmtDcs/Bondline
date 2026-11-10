@@ -248,3 +248,33 @@ test('handleRegisterEdited appends the merchant.log line on ERR_BAD_SIGNATURE', 
     error: 'ERR_BAD_SIGNATURE',
   }]);
 });
+
+// --- audit fixes: /api/demo/claim validation, DEMO_ORDERS="" ---------------------------------
+
+test('audit: handleClaim validates input before any transaction is signed', async (t) => {
+  let signed = 0;
+  const r = fakeRelayer(tempDataDir(t), async () => { signed += 1; return { txHash: 'T', value: {} }; });
+  const bad = [
+    {}, undefined, { order_id: 'A123-01' }, { order_id: 'A123-01', response_b64: '' }, { order_id: 'A123-01', response_b64: 42 },
+    { order_id: 'A123-01', response_b64: 'not base64!' }, { order_id: 'A123-01', response_b64: 'A'.repeat(200_001) },
+    { order_id: '', response_b64: 'AAAA' }, { order_id: '../x', response_b64: 'AAAA' }, { order_id: {}, response_b64: 'AAAA' },
+  ];
+  for (const body of bad) await assert.rejects(() => r.handleClaim(body), isBadRequest, JSON.stringify(body)?.slice(0, 60));
+  assert.equal(signed, 0, 'no claim tx was signed for any malformed request');
+  await r.handleClaim({ order_id: 'A123-01', response_b64: 'AAAA' });
+  assert.equal(signed, 1);
+});
+
+test('audit: an empty DEMO_ORDERS means the default orders, never zero orders', async () => {
+  const { loadConfig, DEFAULT_DEMO_ORDERS } = await import('../lib/relayer.mjs');
+  const env = {
+    CONTRACT_ID: CONTRACT_ID, MERCHANT_ID, BUYER_ID, RELAYER_SECRET_KEY: 'x', BUYER_CLAIM_SECRET_KEY: 'y', NEARAI_API_KEY: 'z',
+  };
+  const expected = parseDemoOrders(DEFAULT_DEMO_ORDERS);
+  assert.deepEqual(loadConfig({ ...env, DEMO_ORDERS: '' }).orders, expected);
+  assert.deepEqual(loadConfig({ ...env, DEMO_ORDERS: '  ' }).orders, expected);
+  assert.deepEqual(loadConfig({ ...env }).orders, expected);
+  assert.throws(() => loadConfig({ ...env, DEMO_ORDERS: ' , ' }), /DEMO_ORDERS has no order/);
+  const example = fs.readFileSync('.env.example', 'utf8');
+  assert.doesNotMatch(example, /^DEMO_ORDERS=/m, '.env.example must not set DEMO_ORDERS (even empty)');
+});

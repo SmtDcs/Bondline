@@ -5,10 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, publicConfig, makeRelayer } from './lib/relayer.mjs';
 import { wrap } from './lib/http.mjs';
+import { localGuard } from './lib/guard.mjs';
 
 const MODE = process.env.MODE ?? 'live';
 const PORT = Number(process.env.PORT ?? 8787);
 const app = express();
+app.use('/api', localGuard({ port: PORT })); // Host + dashboard Origin + JSON only, before anything is parsed or signed
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static('web'));
 app.use('/fixtures', express.static('fixtures')); // replay files are public demo data
