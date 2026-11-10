@@ -156,3 +156,40 @@ fn expired_signer_rejected() {
     let x = &vec["honest"];
     c.register_receipt("A125".into(), s(x, "signed_text"), s(x, "signature_hex"), s(x, "signer_public_key_hex"));
 }
+
+const LIVE: &str = include_str!("../tests/live_vector.json");
+
+#[test]
+fn real_near_ai_ed25519_receipt_registers() {
+    let x: Value = near_sdk::serde_json::from_str(LIVE).unwrap();
+    ctx("owner.testnet", 0);
+    let mut c = Contract::new(acc("owner.testnet"));
+    c.add_signer(s(&x, "signer_public_key_hex"), "provider_tee".into(), Some(s(&x, "model")), "00".repeat(32), U64(NOW_MS + 1000));
+    ctx("shop.testnet", 3 * NEAR);
+    c.register_merchant();
+    ctx("shop.testnet", 0);
+    c.register_order(s(&x, "order_id"), acc("alice.testnet"), U128(2 * NEAR), 3000);
+    let r = c.register_receipt(s(&x, "order_id"), s(&x, "signed_text"), s(&x, "signature_hex"), s(&x, "signer_public_key_hex"));
+    assert_eq!(r.signature_kind, "provider_tee");
+    ctx("alice.testnet", 0);
+    let p = c.preview_claim(s(&x, "order_id"), b64(&x, "response_b64"));
+    // the spike reply may or may not contain a token; either way the receipt must be found
+    assert_ne!(p.error.as_deref(), Some("ERR_NO_RECEIPT_FOR_BYTES"));
+}
+
+#[test]
+#[should_panic(expected = "ERR_BAD_SIGNATURE")]
+fn real_near_ai_receipt_with_edited_hash_fails() {
+    let x: Value = near_sdk::serde_json::from_str(LIVE).unwrap();
+    ctx("owner.testnet", 0);
+    let mut c = Contract::new(acc("owner.testnet"));
+    c.add_signer(s(&x, "signer_public_key_hex"), "provider_tee".into(), Some(s(&x, "model")), "00".repeat(32), U64(NOW_MS + 1000));
+    ctx("shop.testnet", 3 * NEAR);
+    c.register_merchant();
+    ctx("shop.testnet", 0);
+    c.register_order(s(&x, "order_id"), acc("alice.testnet"), U128(2 * NEAR), 3000);
+    let mut text = s(&x, "signed_text");
+    let last = text.pop().unwrap();
+    text.push(if last == '0' { '1' } else { '0' }); // still valid hex, different hash
+    c.register_receipt(s(&x, "order_id"), text, s(&x, "signature_hex"), s(&x, "signer_public_key_hex"));
+}
