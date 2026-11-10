@@ -169,6 +169,12 @@ fn fail(code: &str) -> ! {
     env::panic_str(code)
 }
 
+/// Full-access-key guard (NEP-141 / NEP-145 convention): a function-call key cannot attach a deposit,
+/// so a method that demands exactly 1 yoctoNEAR cannot be called with one.
+fn require_one_yocto() {
+    require!(env::attached_deposit().as_yoctonear() == 1, "ERR_ONE_YOCTO");
+}
+
 fn log_plain(line: &str) {
     env::log_str(line);
 }
@@ -226,6 +232,7 @@ impl Contract {
 
     // ---------------- signer registry (owner only) ----------------
 
+    #[payable]
     pub fn add_signer(
         &mut self,
         public_key_hex: String,
@@ -234,6 +241,7 @@ impl Contract {
         attestation_sha256: String,
         expires_at_ms: U64,
     ) -> SignerInfo {
+        require_one_yocto();
         require!(env::predecessor_account_id() == self.owner, "ERR_NOT_OWNER");
         let pk = public_key_hex.to_lowercase();
         parse::decode_hex_fixed::<32>(&pk).unwrap_or_else(|e| fail(e));
@@ -251,7 +259,9 @@ impl Contract {
         info
     }
 
+    #[payable]
     pub fn remove_signer(&mut self, public_key_hex: String) -> bool {
+        require_one_yocto();
         require!(env::predecessor_account_id() == self.owner, "ERR_NOT_OWNER");
         let pk = public_key_hex.to_lowercase();
         let removed = self.signers.remove(&pk).is_some();
@@ -287,7 +297,9 @@ impl Contract {
         self.storage_view(&account).unwrap()
     }
 
+    #[payable]
     pub fn storage_withdraw(&mut self, amount: Option<U128>) -> StorageBalanceView {
+        require_one_yocto();
         let account = env::predecessor_account_id();
         let b = self.storage.get_mut(&account).unwrap_or_else(|| fail("ERR_STORAGE_BALANCE"));
         let available = b.total.0 - b.used.0;
@@ -345,7 +357,9 @@ impl Contract {
         out
     }
 
+    #[payable]
     pub fn withdraw_bond(&mut self, amount: U128, token: Option<AccountId>) -> Promise {
+        require_one_yocto();
         let merchant = env::predecessor_account_id();
         require_gas();
         let key = (merchant.clone(), token.clone());
@@ -440,6 +454,7 @@ impl Contract {
 
     // ---------------- orders ----------------
 
+    #[payable]
     pub fn register_order(
         &mut self,
         order_id: String,
@@ -449,6 +464,7 @@ impl Contract {
         token: Option<AccountId>,
         ttl_ms: Option<U64>,
     ) -> Order {
+        require_one_yocto();
         let merchant = env::predecessor_account_id();
         require!(
             !order_id.is_empty() && order_id.len() <= 32 && order_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'),

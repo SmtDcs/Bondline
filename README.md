@@ -6,7 +6,7 @@ Built at NEAR HACKATHON (2026-11) by Samet. Tracks: Real-World Money (`realworld
 
 Track fit: `realworld` - merchant refund promises backed by a bond, something a normal shop could use (the recorded run pays testnet NEAR; the NEP-141 stablecoin version `contract-v2/` is **deployed on testnet** with a mock tUSDC, but its end-to-end runs have **not been recorded yet**, see the stablecoin section). No NEAR Intents, no meta transactions. `security` - the hints are AGENT SECURITY, FUNCTION CALL KEYS and TEE ATTESTATION: the bot can promise only a fixed token, the payout is capped by the shop's on-chain `max_bps`, the shop's relayer key can call only `register_receipt` and the shopper's demo key only `claim`, and the signer key is registered with a hash of its TDX/GPU attestation record. Also touches `privacy` (TEE, NEAR AI Cloud), but the chat is not private (a claim publishes the reply), so we do not claim that track.
 
-- Contract (current, stablecoin v2): `v2.cbp-sm1110.testnet` (owner = itself, NEP-141 allow-list `[sm1110-tusdc.testnet]`; the client defaults point here). Mock token: `sm1110-tusdc.testnet` (tUSDC, 6 decimals).
+- Contract (current, stablecoin v2): `v2.cbp-sm1110.testnet` (owner = itself, NEP-141 allow-list `[sm1110-tusdc.testnet]`; the client defaults point here; the account still holds a full-access key, so the operator can override the code-enforced bond rules, see Trust boundaries). Mock token: `sm1110-tusdc.testnet` (tUSDC, 6 decimals).
 - Contract (v1, recorded history, still live and unchanged): `cbp-sm1110.testnet` (owner = itself; the account still holds a full-access key, see Trust boundaries). The recorded run, `fixtures/live/` and `fixtures/replay/transcript.json` are v1.
 - Merchant: `cbp-shop-sm1110.testnet` - Shopper: `cbp-alice-sm1110.testnet`
 - Bot model: NEAR AI Cloud `z-ai/glm-5.3-flash`; TEE signer `5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff` (ed25519)
@@ -38,8 +38,8 @@ Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys, no Rust for 
    - Offline: `npm run verify -- fixtures/live/a123.json --offline` ends in `VERIFIED` (off-chain checks only; it also requires the signing key to be in an attestation record).
 4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the recorded badges and the Claim button show up: the plain URL http://127.0.0.1:8787 runs the same replay but asks testnet for the BINDING check, and both recorded orders are already claimed on chain, so it shows `ERR_ALREADY_CLAIMED` (the honest live state) instead of the claimable badges. `?offline=1` touches nothing but localhost.
 5. (Rust 1.95 installed) `npm run test:contract` - see `test result: ok. 16 passed; 0 failed`.
-6. `npm run test:js` - see `# fail 0` (159 tests, all passed on 2026-11-10). In a sandbox where Node cannot spawn programs by PATH lookup the `demo-setup` tests used to fail with `spawnSync bash EPERM`; they now call `/bin/bash` and run in an empty directory, so they do not depend on the PATH or on your `.env`.
-7. `npm run test:contract:v2` - see `test result: ok. 90 passed`.
+6. `npm run test:js` - see `# fail 0` (163 tests, all passed on 2026-11-10). In a sandbox where Node cannot spawn programs by PATH lookup the `demo-setup` tests used to fail with `spawnSync bash EPERM`; they now call `/bin/bash` and run in an empty directory, so they do not depend on the PATH or on your `.env`.
+7. `npm run test:contract:v2` - see `test result: ok. 95 passed`.
 
 ## Verify each claim
 | Claim | Do | See |
@@ -100,12 +100,12 @@ Trust boundaries:
 | Component | Trusted for | Not trusted for |
 | --- | --- | --- |
 | NEAR AI model TEE | producing and signing the reply bytes | nothing else |
-| Contract owner (`cbp-sm1110.testnet`) | registering only attested signer keys (off-chain check, record hash on chain) | money, in a production deployment. On this testnet demo the contract account keeps a full-access key (see below), so the key holder could redeploy code and move bonds |
+| Contract owner (`cbp-sm1110.testnet` for v1, `v2.cbp-sm1110.testnet` for v2; each is its own owner) | registering only attested signer keys (off-chain check, record hash on chain) | money, in a production deployment. On this testnet demo both contract accounts keep a full-access key (see below), so the key holder could redeploy code and move bonds |
 | Merchant / relayer | choosing to register a reply (the registration is the merchant's authorization; a reply it does not register is shown as NOT A PROMISE) | editing a reply (signature check), exceeding `max_bps`, withdrawing reserved bond |
 | Shopper | nothing | cannot register receipts (`ERR_NOT_ORDER_MERCHANT`), cannot claim twice or with edited bytes |
 | Browser BINDING check | its own RPC views; the reply text it shows is decoded from the same `response_b64` bytes it hashes | the relayer's word (the relayer's separate `reply` string is ignored; a difference is flagged) |
 
-Real trust model of the testnet deploy: `cbp-sm1110.testnet` is its own owner and the account **still has a full-access key** (check it yourself with the RPC call below, which shows one `FullAccess` key; the secret is in the operator's `~/.near-credentials`). That key lets its holder redeploy any wasm, which could move the contract's whole balance (the shop's bond and the buyers' reserved amounts) or wipe receipts. So, on this demo, "the owner cannot move bonds" and "a receipt cannot be deleted" hold for the deployed **code** (it has no method that does either) but not for the **account**: you trust the operator not to redeploy. The honest statement is: no contract method can move a bond or delete a receipt. A production deployment would delete the full-access key (lock the account) or hand it to a DAO / multisig with a timelock, and would redeploy only through that. We did not do it here because the account is a throwaway testnet demo and the operator still needs the key to renew the signer and redeploy a v2.
+Real trust model of the testnet deploy: `cbp-sm1110.testnet` (v1) and `v2.cbp-sm1110.testnet` (v2, the stablecoin market) are each their own owner and each account **still has a full-access key** (v2's is the one added in its create tx `7w6riZo5…`; the tUSDC mock `sm1110-tusdc.testnet` has one too, and its owner is itself, so whoever holds that key can mint tUSDC and redeploy the token). Everything below about v1 holds for v2 in the same way: the v2 bond guarantees (reserved bond cannot be withdrawn, no owner rescue, no way to delete a receipt) are enforced by the deployed **code**, not by the account, and the operator can still override them by redeploying. The checks below were run on 2026-11-10 against the public RPC: `view_access_key_list` returned exactly one `FullAccess` key for each of `cbp-sm1110.testnet`, `v2.cbp-sm1110.testnet` and `sm1110-tusdc.testnet`; `get_owner` on the token returned `sm1110-tusdc.testnet`. Details for v1: (check it yourself with the RPC call below, which shows one `FullAccess` key; the secret is in the operator's `~/.near-credentials`). That key lets its holder redeploy any wasm, which could move the contract's whole balance (the shop's bond and the buyers' reserved amounts) or wipe receipts. So, on this demo, "the owner cannot move bonds" and "a receipt cannot be deleted" hold for the deployed **code** (it has no method that does either) but not for the **account**: you trust the operator not to redeploy. The honest statement is: no contract method can move a bond or delete a receipt. A production deployment would delete the full-access key (lock the account) or hand it to a DAO / multisig with a timelock, and would redeploy only through that. We did not do it here because the account is a throwaway testnet demo and the operator still needs the key to renew the signer and redeploy a v2.
 
 To check the key list yourself (read-only, no keys needed):
 
@@ -113,10 +113,10 @@ To check the key list yourself (read-only, no keys needed):
 curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"cbp-sm1110.testnet"}}'
 ```
 
-The reply lists one key and its `"permission":"FullAccess"`. When this README was written (2026-11-10) it was the only key.
+The reply lists one key and its `"permission":"FullAccess"`. When this README was written (2026-11-10) it was the only key. Change `account_id` to `v2.cbp-sm1110.testnet` or `sm1110-tusdc.testnet` to check the v2 market and the token (same result on 2026-11-10: one `FullAccess` key each).
 
 Known limits (also stated in `docs/plan/PLAN.md` section 4 and in the contract comments):
-- The contract account keeps a full-access key (testnet demo, see above): not trustless until that key is deleted or put under a DAO.
+- Each contract account (v1 `cbp-sm1110.testnet`, v2 `v2.cbp-sm1110.testnet`) and the tUSDC mock keep a full-access key (testnet demo, see above): not trustless until that key is deleted or put under a DAO. The v2 market's owner actions do not need the key (the owner is the contract itself), so it could be deleted after the live runs; it has not been.
 - A promise is claimable only if the merchant's relayer registers the receipt correctly: receipts are keyed globally by response hash and cannot be removed, so a receipt filed under the wrong order (by bug, on purpose, or by another merchant that copies public `register_receipt` args after a failed tx) blocks that reply for good (`ERR_RECEIPT_ORDER_MISMATCH` / `ERR_RECEIPT_EXISTS`). The TEE signature only stops the merchant from *editing* a reply; it does not make the promise claimable without the merchant's cooperation.
 - Replies cut off by the token limit (`finish_reason: length`) are not detected: a token truncated inside the `bps` digits would be registered with the smaller value. The shopper can decline to claim; the merchant is never overcharged.
 - `npm run attest` verifies the TDX quote, the nonce / signing-address binding, the compose hash and the GPU evidence through the NEAR AI SDK, but it does not check the SDK's deployment provenance (`not_checked`), and it does not record the model name from the attestation: the model id registered with `add_signer` is the `--model` argument, i.e. the operator's assertion plus the model string the signed text contains.
@@ -124,6 +124,7 @@ Known limits (also stated in `docs/plan/PLAN.md` section 4 and in the contract c
 - The contract cannot verify a TDX quote. It trusts the owner's attested-signer list; the Intel TDX + NVIDIA GPU attestation is verified off chain by `npm run attest` and only the record file's sha256 is stored on chain.
 - NEAR AI notes that instances of the same model share one signing key, so a signer key identifies the model family and its TEE, not one individual instance.
 - A claim puts the reply bytes on chain (the shopper chooses to claim), so a claimed conversation is public. This is not private chat.
+- (v2 source, not yet deployed) A merchant's money methods `register_order`, `withdraw_bond`, `storage_withdraw` and the owner methods `add_signer` / `remove_signer` require exactly 1 yoctoNEAR (`ERR_ONE_YOCTO`), so only a full-access key can call them; a function-call key (for example one a wallet creates with an empty method list for a dashboard) cannot, and so cannot register a free-bond order for an attacker to claim. `register_receipt` and `claim` stay callable by function-call keys. The v2 build live on testnet today (code hash `399c5af6…`) predates this check: with an empty-`method_names` function-call key on the merchant account, a stolen key could call `register_order`. The demo keys name their methods, so the demo is not exposed. Fixed in the source and covered by unit tests; it needs a redeploy.
 - Wallet login for the shopper is not implemented: the demo keeps a claim-only function-call key on the laptop and labels it.
 - (v1) There is no order expiry and no way to release an unclaimed reservation; the reserved liability stays until the order is claimed. v2 adds both (unit-tested, not yet run on testnet).
 - Only one token kind (`refund`) exists, with no discounts, replacements or disputes.
@@ -144,11 +145,11 @@ The contract on testnet (`cbp-sm1110.testnet`, wasm sha256 `c4d88ead…`) is fro
 
 | Item | Value |
 | --- | --- |
-| Market contract | `v2.cbp-sm1110.testnet`, owner = itself, `get_config` -> `api 2`, `allowed_tokens ["sm1110-tusdc.testnet"]`, `min_order_ttl_ms 120000` (a demo setting; the contract default is 1 hour) |
+| Market contract | `v2.cbp-sm1110.testnet`, owner = itself (the account still has a full-access key, see Trust boundaries), `get_config` -> `api 2`, `allowed_tokens ["sm1110-tusdc.testnet"]`, `min_order_ttl_ms 120000` (a demo setting; the contract default is 1 hour) |
 | Code | `contract-v2/res/bot_promises_v2.wasm`, 299448 bytes, sha256 `399c5af66e90a5800658f86a25c29fa76c62018f7d77d40b47e139e71f9b08bd`; the on-chain `code_hash` of the account is the same (checked by RPC `view_account` on 2026-11-10) |
 | Created / funded / deployed | create tx `7w6riZo57TqQXaqSuY19aCkfCwxCKcmBL5f4A8c8CBVz`, funding tx `CbD75d7Ro1e4HmDFNrstxhXoZA31d8CxpvMisN8ug4z` (7 NEAR), deploy + `new` tx `BY57K2VSfnuTg236uwVsa1frUJbyD2TyebYcFaJq1bA5` (operator; each tx was re-read with RPC `tx`: success) |
 | Market registered on the token | tx `9MfE4aApnDg6zH4XuTQoXEAuKm9D7Qqc8AFPFU3URnJn`; `storage_balance_of` on the token is `1250000000000000000000` |
-| TEE signer on v2 | `add_signer` tx `B4GGMbPTthfEhztR5fXqN7iJFuZet9PCBADYwLeTtGDR` (`add_signer` takes no deposit, attach 0; a first attempt with a deposit failed); `get_signers` shows `5a0210f2…caff`, attestation `520bedd1…6a65`, expires 2026-11-30 |
+| TEE signer on v2 | `add_signer` tx `B4GGMbPTthfEhztR5fXqN7iJFuZet9PCBADYwLeTtGDR` (the deployed build's `add_signer` takes no deposit, attach 0; a first attempt with a deposit failed; the source in this repo now requires exactly 1 yoctoNEAR, which takes effect after a redeploy); `get_signers` shows `5a0210f2…caff`, attestation `520bedd1…6a65`, expires 2026-11-30 |
 | Function-call keys on v2 | shop `register_receipt` (tx `7E1q3roU8iSeTTzXqjvrLak1uN1qyFcgEd79e3jiXvYe`), alice `claim` (tx `5qygwdQQTorxucw9kojQSY1ZS7Z2zxJTYLdcZK9yWAie`); both work, see below |
 | Token | `sm1110-tusdc.testnet`, **a testnet mock** (NEP-141 + NEP-145 + NEP-148, symbol `tUSDC`, 6 decimals, owner-only mint), wasm sha256 `66d6fc0a1c29683a8802bda397e8448ead45c74df1d591cc5ddf2b6d213570c1` (the on-chain code hash matches), deploy tx `2b3hMb4qHXo3XFan4y4gCG3zow5MEaQCzvg1eYrJgBDJ` |
 | Accounts | shop and alice hold 10000 tUSDC each; `cbp-bob-sm1110.testnet` exists and is deliberately **not** registered on the token (the failure-case account). The merchant is **not registered on v2 yet** (`get_merchant` -> `null`, `get_bonds` -> `[]`) |
@@ -168,11 +169,11 @@ and every flow in `docs/STABLECOIN.md` section 12 (L2-L14), so there is no live 
 full-access keys, which the session that did this round could not read; `docs/runbook.md` lists the
 exact commands that are left. The gas constants (20/15 Tgas), the 0.5 NEAR storage deposit and the
 payout-failure behaviour are still unmeasured on testnet; the callbacks and the failed-payout restore
-are covered by the 90 unit tests only.
+are covered by the unit tests only.
 
 - Build: `npm run build:contract:v2` -> `contract-v2/res/bot_promises_v2.wasm` (see the table).
-- Tests (run 2026-11-10): `npm run test:contract:v2` -> `90 passed`; `npm run test:contract` (v1) ->
-  `16 passed`; `npm run test:js` -> 159 tests, all passed; `npm run verify:fixtures` unchanged
+- Tests (run 2026-11-10): `npm run test:contract:v2` -> `95 passed` (final review fixes, run on the same day); `npm run test:contract` (v1) ->
+  `16 passed`; `npm run test:js` -> 163 tests, all passed (final review fixes); `npm run verify:fixtures` unchanged
   (`ALL VERIFIED (3 real bundles + 1 tampered (correctly rejected) + 2 SIMULATED ...)`).
 - NEP-141 bonds: a merchant adds a bond in an allowed token with `ft_transfer_call` and
   `{"add_bond":{}}`; the market credits `sender_id` only. The design text is the spec
@@ -230,16 +231,16 @@ Errors are the frozen strings in `docs/plan/INTERFACES.md` section 6 (`ERR_BAD_S
 | Method | Kind | Who | Effect |
 | --- | --- | --- | --- |
 | `new(owner, allowed_tokens?, min_order_ttl_ms?)` | init | deployer | allow-list (<= 8, no duplicates) and the TTL floor; both arguments optional, so `{"owner":"x"}` works |
-| `add_signer`, `remove_signer` | change | owner | unchanged |
+| `add_signer`, `remove_signer` | change | owner | unchanged; the source now also needs exactly 1 yoctoNEAR (after redeploy; the live build takes 0) |
 | `register_merchant()` payable >= 1 NEAR | change | anyone once | creates the NEAR bond; the record's measured storage cost comes out of the deposit |
 | `add_bond()` payable | change | merchant | NEAR bond top-up |
 | `ft_on_transfer(sender_id, amount, msg)` | change | the token contract | the only token inflow; `{"add_bond":{}}`; anything else is refunded (`REFUND:*`) |
-| `withdraw_bond(amount, token?)` | change | merchant | free part only, paid through a callback |
-| `register_order(order_id, buyer, amount, max_bps, token?, ttl_ms?)` | change | merchant | reserves in that token's bond; `expires_at_ms` |
+| `withdraw_bond(amount, token?)` | change | merchant | free part only, paid through a callback; source needs exactly 1 yoctoNEAR (after redeploy) |
+| `register_order(order_id, buyer, amount, max_bps, token?, ttl_ms?)` | change | merchant | reserves in that token's bond; `expires_at_ms`; source needs exactly 1 yoctoNEAR (after redeploy) |
 | `release_expired(merchant, order_id)` | change | anyone | frees an expired reservation, emits `order_expired` |
 | `register_receipt(order_id, signed_text, signature_hex, signer_public_key_hex)` | change | the order's merchant | same frozen checks; keyed by `(merchant, response_hash)`; refused for settled/expired orders |
 | `claim(merchant, order_id, response_b64)` | change | the order's buyer | pays through `ft_transfer`/transfer + `on_claim_paid`; `ok:false` on a failed payout |
-| `storage_deposit`, `storage_withdraw`, `storage_balance_of` | change/view | anyone / the account | prepaid storage, shaped like NEP-145 |
+| `storage_deposit`, `storage_withdraw`, `storage_balance_of` | change/view | anyone / the account | prepaid storage, shaped like NEP-145; `storage_withdraw` needs exactly 1 yoctoNEAR in the source (after redeploy) |
 | `on_claim_paid`, `on_withdraw_resolved` | callback | the contract itself | book changes after the transfer result; never panic on a failed transfer |
 | views | view | anyone | `get_config` (api 2), `get_bond(s)`, `get_merchant` (v1 shape), `get_order(merchant, id)`, `get_receipt(merchant, hash)`, `preview_claim(merchant, id, b64)` |
 
@@ -282,6 +283,7 @@ fixed the build (section 18 there lists what it changed); Claude Opus 5.5 did th
 testnet deploys (tUSDC, `v2.cbp-sm1110.testnet`, keys, funding). A later Claude Sonnet 5.5 session pointed the client
 defaults at v2, made two function-call-key calls on v2 and re-ran the test suites; it could not read the shop's full-access
 key, so the merchant setup and the live v2 flows were not run (see the stablecoin section). No browser was opened.
+Final review fixes (F1 1-yocto check on the money methods, F2 full-access-key wording): found by Claude Opus 5.5 in its final review, fixed by Claude Sonnet 5.5 (code, tests, docs); not deployed, see Known limits.
 
 ## Libraries
 near-sdk 5.30.1, hex 0.4.3 (Rust); near-api-js 7.4.0, @nearai/inference-sdk 0.3.0, express 5.3.0 (Node); cargo-near 0.23.0, near-cli-rs 0.31.1.

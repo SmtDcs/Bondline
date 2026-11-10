@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { addSignerCommand } from '../lib/add-signer-command.mjs';
 import { AttestationClient, verifyModelAttestation } from '@nearai/inference-sdk/node';
 
 const argv = process.argv.slice(2);
@@ -40,5 +41,5 @@ for (const v of verified) {
   const pk = v.signer.signingAddress.replace(/^0x/, '').toLowerCase();
   console.log(`ATTESTED ${pk} tcb=${v.tcbStatus} gpu=${v.gpuEvidence} record=${file} record_sha256=${sha}`);
   const args = JSON.stringify({ public_key_hex: pk, kind: 'provider_tee', model_id: model, attestation_sha256: sha, expires_at_ms: String(expires) });
-  console.log(`near contract call-function as-transaction ${contractId} add_signer json-args '${args}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as ${contractId} network-config testnet sign-with-legacy-keychain send`);
+  console.log(addSignerCommand({ contractId, args: JSON.parse(args), deposit: process.env.ADD_SIGNER_DEPOSIT || undefined }));
 }

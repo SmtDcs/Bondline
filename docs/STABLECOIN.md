@@ -68,12 +68,12 @@ Prepaid gas stays 100 Tgas for the existing calls. "Compatible" means same name,
 | Method | Kind | Who | Change from v1 |
 | --- | --- | --- | --- |
 | `new(owner, allowed_tokens: Option<Vec<AccountId>>, min_order_ttl_ms: Option<U64>)` | init | deployer | Both new arguments are optional, so `{"owner":"x"}` still works (no tokens, 1 hour minimum TTL). Panics: `ERR_TOKEN_LIST` (duplicate, more than 8), `ERR_TTL` (zero or above the max). |
-| `add_signer`, `remove_signer` | change | owner | none |
+| `add_signer`, `remove_signer` | change | owner | None in the interface; final review F1 (section 20) now also requires exactly 1 yoctoNEAR. |
 | `register_merchant()` payable >= 1 NEAR | change | anyone, once | Creates the **NEAR** bond. The storage cost of the new record is taken from the attached deposit: `bond = deposit - storage cost`, and the 1 NEAR minimum applies to that `bond`. |
 | `add_bond()` payable | change | merchant | NEAR bond only, as before (needs a NEAR bond, else `ERR_NOT_MERCHANT`). |
 | `ft_on_transfer(sender_id, amount, msg) -> PromiseOrValue<U128>` | change | the token contract | **New.** The only way tokens come in (section 5). |
-| `withdraw_bond(amount, token: Option<AccountId>)` | change | merchant | `token` is optional, `None` = NEAR, so v1 calls work. Pays out with a callback (section 7). |
-| `register_order(order_id, buyer, amount, max_bps, token: Option<AccountId>, ttl_ms: Option<U64>)` | change | merchant | Two optional arguments. Key is `(merchant, order_id)`. New checks below. |
+| `withdraw_bond(amount, token: Option<AccountId>)` | change | merchant | `token` is optional, `None` = NEAR, so v1 calls work. Pays out with a callback (section 7). Final review F1: needs exactly 1 yoctoNEAR (section 20). |
+| `register_order(order_id, buyer, amount, max_bps, token: Option<AccountId>, ttl_ms: Option<U64>)` | change | merchant | Two optional arguments. Key is `(merchant, order_id)`. New checks below. Final review F1: needs exactly 1 yoctoNEAR (section 20). |
 | `release_expired(merchant, order_id)` | change | anyone | **New.** Releases the reservation of an expired order (section 8). |
 | `register_receipt(order_id, signed_text, signature_hex, signer_public_key_hex)` | change | the order's merchant | Same arguments. The order is looked up as `(caller, order_id)`. New checks below. |
 | `claim(merchant, order_id, response_b64)` | change | the order's buyer | **Gains `merchant`** (required, because order ids are per merchant). Pays through a callback (section 7). |
@@ -118,7 +118,7 @@ Accepted risk, to be written in the README: the allow-list is trusted. A token t
 
 **Rule: whoever creates state pays for it, from their own money, measured, not estimated.**
 
-- Each account that creates orders or receipts keeps a prepaid **storage balance** in the contract: `storage_deposit(account_id?)` (payable, anyone may fund anyone), `storage_withdraw(amount?)` (the account, only the `available` part, 1 yoctoNEAR is not required), `storage_balance_of(account_id) -> {total, available} | null`. The first deposit pays for its own record, so `total` is the deposit minus that cost.
+- Each account that creates orders or receipts keeps a prepaid **storage balance** in the contract: `storage_deposit(account_id?)` (payable, anyone may fund anyone), `storage_withdraw(amount?)` (the account, only the `available` part; final review F1 (section 20) now requires exactly 1 yoctoNEAR, the first design did not), `storage_balance_of(account_id) -> {total, available} | null`. The first deposit pays for its own record, so `total` is the deposit minus that cost.
 - Why a prepaid balance and not an attached deposit: the relayer's key is a function-call key and a function-call key cannot attach a deposit, and `ft_on_transfer` carries tokens, not NEAR. A prepaid balance is the only way the relayer can create receipts and the only way a first token bond can pay for its record.
 - Every state-creating call measures `env::storage_usage()` before and after, and charges `(after - before) * env::storage_byte_cost()` to the right account:
 
@@ -577,3 +577,37 @@ Then in `.env` set `DEMO_ORDERS` to the new ids, run `npm run dev`, drive chat a
 `contract-v2` `cargo test` -> `90 passed; 0 failed`; `contract` -> `16 passed; 0 failed`;
 `node --test app/test/*.test.mjs` -> `# tests 159  # pass 159  # fail 0`; `npm run verify:fixtures` ->
 `ALL VERIFIED (3 real bundles + 1 tampered (correctly rejected) + 2 SIMULATED (fake key, not TEE evidence))`.
+
+## 20. Final review fixes (F1, F2)
+
+**F1: money methods need exactly 1 yoctoNEAR.** In the first build `register_order`, `withdraw_bond`
+and `storage_withdraw` were non-payable and did not look at the deposit, so any function-call access
+key of the merchant could call them. A wallet that creates a function-call key for the market with an
+empty `method_names` list gives that key every non-payable method. Someone who obtains such a key (a
+malicious frontend, XSS) could call `register_order(buyer = attacker, amount = the free bond,
+max_bps = 10000)`, get a `PROMISE|refund|order=X|bps=10000` reply signed by the shared NEAR AI model
+key from their own NEAR AI account, register it with the same key and claim: the merchant's free bond
+goes to the attacker. The demo keys name their methods, so the demo is not exposed.
+
+Fix in `contract-v2/src/lib.rs`: `register_order`, `withdraw_bond`, `storage_withdraw`, `add_signer` and
+`remove_signer` are `#[payable]` and panic with `ERR_ONE_YOCTO` unless the attached deposit is exactly
+1 yoctoNEAR (the NEP-141 / NEP-145 convention). A function-call key cannot attach a deposit, so only a
+full-access key passes. `register_receipt` and `claim` keep working with a deposit of 0 so the relayer and
+shopper function-call keys still work. Unit tests: `register_order_needs_exactly_one_yocto`,
+`withdraw_bond_needs_exactly_one_yocto`, `storage_withdraw_needs_exactly_one_yocto`,
+`add_and_remove_signer_need_exactly_one_yocto` (0 and 2 yocto panic with `ERR_ONE_YOCTO` and nothing
+changes; 1 works) and `register_receipt_and_claim_stay_callable_with_a_zero_deposit`. The first four
+fail on the old code. The 1 yoctoNEAR stays in the contract.
+
+This changes the deployed interface, so it **needs a redeploy**: the v2 build live on testnet (code hash
+`399c5af6...`) does not have the check. Until then `add_signer` and `register_order` must be called with
+0 deposit on the live contract; `npm run attest` prints `1 yoctoNEAR` by default (`ADD_SIGNER_DEPOSIT='0 NEAR'`
+for the live build) and `app/scripts/demo-setup.sh` attaches `$REGISTER_ORDER_DEPOSIT` (default
+`1 yoctoNEAR`, `'0 NEAR'` for the live build) on the v2 path.
+
+**F2: the v2 account still has a full-access key.** `view_access_key_list` (public RPC, 2026-11-10)
+returns one `FullAccess` key each for `v2.cbp-sm1110.testnet` and the tUSDC mock `sm1110-tusdc.testnet`
+(`get_owner` on the mock returns itself). The guarantees in this design hold for the code; the operator can
+still redeploy the market or mint tUSDC. README Trust boundaries now says so. The owner actions of the
+market do not need that key (the owner is the contract itself), so deleting it after the live runs is
+possible; it has not been deleted.

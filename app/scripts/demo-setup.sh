@@ -34,6 +34,10 @@ BUYER_ID="${BUYER_ID:-$(env_get BUYER_ID)}"
 TOKEN_ID="${TOKEN_ID:-$(env_get TOKEN_ID)}"
 V2="${V2:-0}"
 DRY_RUN="${DRY_RUN:-0}"
+# Final review F1: v2 register_order needs exactly 1 yoctoNEAR (full-access key only; a function-call key
+# cannot attach a deposit). The v2 build live on testnet today predates that check and rejects any deposit:
+# until the market is redeployed run with REGISTER_ORDER_DEPOSIT='0 NEAR'. The v1 path keeps 0 (v1 is unchanged).
+REGISTER_ORDER_DEPOSIT="${REGISTER_ORDER_DEPOSIT:-1 yoctoNEAR}"
 : "${CONTRACT_ID:?missing CONTRACT_ID (set it in the shell or .env)}"
 : "${MERCHANT_ID:?missing MERCHANT_ID (set it in the shell or .env)}"
 : "${BUYER_ID:?missing BUYER_ID (set it in the shell or .env)}"
@@ -64,7 +68,7 @@ if [ "$V2" = "1" ] && [ "$ASSET" = "near" ]; then
   for ID in "A123-$RUN" "A124-$RUN"; do
     run near contract call-function as-transaction "$CONTRACT_ID" register_order \
       json-args "{\"order_id\":\"$ID\",\"buyer\":\"$BUYER_ID\",\"amount\":\"$NEAR_AMOUNT_YOCTO\",\"max_bps\":3000,\"ttl_ms\":\"$TTL_MS\"}" \
-      prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
+      prepaid-gas '30 Tgas' attached-deposit "$REGISTER_ORDER_DEPOSIT" sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
   done
   if [ "$DRY_RUN" != "1" ]; then
     near contract call-function as-read-only "$CONTRACT_ID" get_bonds json-args "{\"merchant\":\"$MERCHANT_ID\"}" network-config testnet now
@@ -113,7 +117,7 @@ if [ "$V2" = "1" ]; then
   for ID in "A123-$RUN" "A124-$RUN"; do
     run near contract call-function as-transaction "$CONTRACT_ID" register_order \
       json-args "{\"order_id\":\"$ID\",\"buyer\":\"$BUYER_ID\",\"amount\":\"$AMOUNT_RAW\",\"max_bps\":3000,\"token\":\"$TOKEN_ID\",\"ttl_ms\":\"$TTL_MS\"}" \
-      prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
+      prepaid-gas '30 Tgas' attached-deposit "$REGISTER_ORDER_DEPOSIT" sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
   done
   if [ "$DRY_RUN" != "1" ]; then
     near contract call-function as-read-only "$CONTRACT_ID" get_bonds json-args "{\"merchant\":\"$MERCHANT_ID\"}" network-config testnet now

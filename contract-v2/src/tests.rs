@@ -81,7 +81,7 @@ fn new_contract(tokens: Vec<&str>) -> Contract {
 }
 fn add_honest_signer(c: &mut Contract) {
     let vec = v();
-    ctx("owner.testnet", 0);
+    ctx("owner.testnet", 1);
     c.add_signer(
         s(&vec["honest"], "signer_public_key_hex"),
         "provider_tee".into(),
@@ -107,7 +107,7 @@ fn token_bond(c: &mut Contract, merchant: &str, token: &str, amount: u128) {
     assert_eq!(unused(c.ft_on_transfer(acc(merchant), U128(amount), "{\"add_bond\":{}}".into())), 0);
 }
 fn register_order(c: &mut Contract, merchant: &str, id: &str, buyer: &str, amount: u128, max_bps: u16, token: Option<&str>, ttl_ms: Option<u64>) -> Order {
-    ctx(merchant, 0);
+    ctx(merchant, 1);
     c.register_order(id.into(), acc(buyer), U128(amount), max_bps, token.map(acc), ttl_ms.map(U64))
 }
 fn register_receipt(c: &mut Contract, merchant: &str, order: &str, x: &Value) -> Receipt {
@@ -214,7 +214,7 @@ fn receipt_for_other_order_rejected() {
 #[should_panic(expected = "ERR_BAD_SIGNATURE")]
 fn edited_signed_text_fails_signature() {
     let vec = v();
-    ctx("owner.testnet", 0);
+    ctx("owner.testnet", 1);
     let mut c = Contract::new(acc("owner.testnet"), None, Some(U64(1000)));
     let x = &vec["honest"];
     c.add_signer(s(x, "signer_public_key_hex"), "provider_tee".into(), Some("z-ai/glm-5.3-flash".into()), "00".repeat(32), U64(NOW_MS + 1000));
@@ -250,7 +250,7 @@ fn only_buyer_can_claim() {
 #[should_panic(expected = "ERR_WITHDRAW_EXCEEDS_FREE_BOND")]
 fn reserved_bond_cannot_be_withdrawn() {
     let mut c = setup();
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let _ = c.withdraw_bond(U128(2 * NEAR), None); // free = 3 - 1.2 = 1.8 NEAR
 }
 
@@ -260,7 +260,7 @@ fn expired_signer_rejected() {
     let vec = v();
     let mut c = setup();
     ctx("shop.testnet", 0);
-    ctx_at("shop.testnet", 0, NOW_MS + DAY_MS + 1);
+    ctx_at("shop.testnet", 1, NOW_MS + DAY_MS + 1);
     c.register_order("A125".into(), acc("alice.testnet"), U128(NEAR), 1000, None, None);
     let x = &vec["honest"];
     c.register_receipt("A125".into(), s(x, "signed_text"), s(x, "signature_hex"), s(x, "signer_public_key_hex"));
@@ -269,7 +269,7 @@ fn expired_signer_rejected() {
 /// Contract with the REAL S1 vector registered as signer, plus one 2 NEAR order with a 30% cap for it.
 fn live_setup() -> (Contract, Value) {
     let x: Value = near_sdk::serde_json::from_str(LIVE).unwrap();
-    ctx("owner.testnet", 0);
+    ctx("owner.testnet", 1);
     let mut c = Contract::new(acc("owner.testnet"), None, Some(U64(1000)));
     c.add_signer(s(&x, "signer_public_key_hex"), "provider_tee".into(), Some(s(&x, "model")), "00".repeat(32), U64(NOW_MS + 1000));
     merchant(&mut c, "shop.testnet", 3 * NEAR, NEAR);
@@ -673,7 +673,7 @@ fn a_third_party_can_fund_an_account() {
 fn register_order_charges_exactly_the_measured_bytes() {
     let mut c = token_merchant();
     let avail_before = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let before = env::storage_usage();
     c.register_order("E3".into(), acc("alice.testnet"), U128(1000), 1000, Some(acc(TUSDC)), None);
     let cost = (env::storage_usage() - before) as u128 * byte_cost();
@@ -701,7 +701,7 @@ fn short_balance_panics_and_leaves_no_order() {
     let mut c = new_contract(vec![]);
     ctx("shop.testnet", 3 * NEAR);
     c.register_merchant(); // bond only: no storage balance at all
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let before = env::storage_usage();
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         c.register_order("E5".into(), acc("alice.testnet"), U128(NEAR), 1000, None, None);
@@ -718,7 +718,7 @@ fn short_balance_panics_on_receipt_too() {
     register_order(&mut c, "shop.testnet", "E5R", "alice.testnet", 20_000_000, 3000, Some(TUSDC), None);
     // spend the balance down to almost nothing by withdrawing the free part
     let avail = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     c.storage_withdraw(Some(U128(avail - 1)));
     ctx("shop.testnet", 0);
     let before = env::storage_usage();
@@ -739,7 +739,7 @@ fn storage_withdraw_takes_only_the_available_part() {
     let used = view.total.0 - view.available.0;
     // above available: panic; exactly available: works, the used part stays
     let available = view.available.0;
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.storage_withdraw(Some(U128(available + 1))))).is_err());
     let after = c.storage_withdraw(Some(U128(available)));
     assert_eq!(after.total, U128(used));
@@ -769,12 +769,12 @@ fn register_merchant_keeps_the_record_cost_out_of_the_bond() {
 fn spam_loop_stops_when_the_storage_balance_runs_out() {
     let mut c = token_merchant();
     // measure one order's charge, then fund exactly five more
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let before = env::storage_usage();
     c.register_order("S0".into(), acc("alice.testnet"), U128(1000), 1000, Some(acc(TUSDC)), None);
     let unit = (env::storage_usage() - before) as u128 * byte_cost();
     let leftover = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     c.storage_withdraw(Some(U128(leftover)));
     ctx("shop.testnet", 5 * unit);
     c.storage_deposit(None);
@@ -782,6 +782,7 @@ fn spam_loop_stops_when_the_storage_balance_runs_out() {
     assert_eq!(free, 5 * unit);
     let mut decreased = 0u128;
     let mut growth = 0u128;
+    ctx("shop.testnet", 1);
     for i in 1..=5 {
         let avail = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
         let usage = env::storage_usage();
@@ -954,7 +955,7 @@ fn a_third_account_can_release_an_expired_reservation() {
     assert_eq!(e[0]["data"][0]["released"], o.liability.0.to_string());
     assert_eq!(e[0]["data"][0]["token"], Value::Null);
     // the released amount is free again
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let free = c.get_merchant(acc("shop.testnet")).unwrap();
     let _ = c.withdraw_bond(U128(free.bond.0 - free.reserved.0), None);
 }
@@ -1231,7 +1232,7 @@ fn near_withdraw_setup() -> Contract {
 #[test]
 fn token_withdraw_debits_at_once_and_builds_ft_transfer() {
     let mut c = token_order_setup();
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let p = c.withdraw_bond(U128(5_000_000), Some(acc(TUSDC)));
     drop(p);
     assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(15_000_000));
@@ -1250,7 +1251,7 @@ fn token_withdraw_debits_at_once_and_builds_ft_transfer() {
 #[test]
 fn withdraw_callback_success_emits_and_failure_restores() {
     let mut c = token_order_setup();
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let p = c.withdraw_bond(U128(2_000_000), Some(acc(TUSDC)));
     drop(p);
     ctx_result(PromiseResult::Successful(vec![]));
@@ -1261,7 +1262,7 @@ fn withdraw_callback_success_emits_and_failure_restores() {
     assert_eq!(e[0]["event"], "bond_withdrawn");
     assert_eq!(e[0]["data"][0]["token"], TUSDC);
 
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let p = c.withdraw_bond(U128(2_000_000), Some(acc(TUSDC)));
     drop(p);
     ctx_result(PromiseResult::Failed);
@@ -1274,7 +1275,7 @@ fn withdraw_callback_success_emits_and_failure_restores() {
 #[test]
 fn two_quick_withdrawals_cannot_exceed_the_free_bond() {
     let mut c = token_order_setup();
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let free = 20_000_000u128 - 12_000_000;
     let p = c.withdraw_bond(U128(free - 1), Some(acc(TUSDC)));
     drop(p);
@@ -1288,7 +1289,7 @@ fn two_quick_withdrawals_cannot_exceed_the_free_bond() {
 #[test]
 fn withdraw_checks_the_reserved_part_and_the_existing_record() {
     let mut c = token_order_setup();
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let free = 20_000_000u128 - 12_000_000;
     for amount in [free + 1, 0, 20_000_000] {
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1309,7 +1310,7 @@ fn withdraw_checks_the_reserved_part_and_the_existing_record() {
 #[test]
 fn near_withdraw_restores_on_failure() {
     let mut c = near_withdraw_setup();
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     let before = c.get_merchant(acc("shop.testnet")).unwrap();
     let p = c.withdraw_bond(U128(NEAR), None);
     drop(p);
@@ -1402,10 +1403,109 @@ fn claim_callback_treats_a_non_empty_successful_result_as_paid() {
 #[test]
 fn withdraw_callback_treats_a_non_empty_successful_result_as_paid() {
     let mut c = token_order_setup();
-    ctx("shop.testnet", 0);
+    ctx("shop.testnet", 1);
     drop(c.withdraw_bond(U128(2_000_000), Some(acc(TUSDC))));
     ctx_result(PromiseResult::Successful(b"\"ok\"".to_vec()));
     assert!(c.on_withdraw_resolved(acc("shop.testnet"), Some(acc(TUSDC)), U128(2_000_000)));
     assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(18_000_000));
     assert_eq!(events().len(), 1);
+}
+
+// ---- final review F1: money methods need exactly 1 yoctoNEAR (full-access key only) ----
+
+fn panics_with(f: impl FnOnce() + std::panic::UnwindSafe, needle: &str) {
+    let err = std::panic::catch_unwind(f).expect_err("must panic");
+    let msg = err
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    assert!(msg.contains(needle), "panic was {:?}, expected {:?}", msg, needle);
+}
+
+#[test]
+fn register_order_needs_exactly_one_yocto() {
+    let mut c = setup();
+    for dep in [0u128, 2] {
+        ctx("shop.testnet", dep);
+        panics_with(
+            std::panic::AssertUnwindSafe(|| {
+                c.register_order("Y1".into(), acc("alice.testnet"), U128(NEAR), 1000, None, None);
+            }),
+            "ERR_ONE_YOCTO",
+        );
+        assert!(c.get_order(acc("shop.testnet"), "Y1".into()).is_none());
+    }
+    ctx("shop.testnet", 1);
+    c.register_order("Y1".into(), acc("alice.testnet"), U128(NEAR), 1000, None, None);
+    assert!(c.get_order(acc("shop.testnet"), "Y1".into()).is_some());
+}
+
+#[test]
+fn withdraw_bond_needs_exactly_one_yocto() {
+    let mut c = setup();
+    for dep in [0u128, 2] {
+        ctx("shop.testnet", dep);
+        panics_with(std::panic::AssertUnwindSafe(|| drop(c.withdraw_bond(U128(NEAR), None))), "ERR_ONE_YOCTO");
+    }
+    // nothing moved
+    assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap().bond, U128(3 * NEAR));
+    ctx("shop.testnet", 1);
+    drop(c.withdraw_bond(U128(NEAR), None));
+    assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap().bond, U128(2 * NEAR));
+}
+
+#[test]
+fn storage_withdraw_needs_exactly_one_yocto() {
+    let mut c = setup();
+    let before = c.storage_balance_of(acc("shop.testnet")).unwrap();
+    for dep in [0u128, 2] {
+        ctx("shop.testnet", dep);
+        panics_with(std::panic::AssertUnwindSafe(|| drop(c.storage_withdraw(Some(U128(1))))), "ERR_ONE_YOCTO");
+    }
+    assert_eq!(c.storage_balance_of(acc("shop.testnet")).unwrap().total, before.total);
+    ctx("shop.testnet", 1);
+    c.storage_withdraw(Some(U128(1)));
+    assert_eq!(c.storage_balance_of(acc("shop.testnet")).unwrap().total.0, before.total.0 - 1);
+}
+
+#[test]
+fn add_and_remove_signer_need_exactly_one_yocto() {
+    let mut c = new_contract(vec![]);
+    let vec = v();
+    let pk = s(&vec["honest"], "signer_public_key_hex");
+    for dep in [0u128, 2] {
+        ctx("owner.testnet", dep);
+        panics_with(
+            std::panic::AssertUnwindSafe(|| {
+                c.add_signer(pk.clone(), "provider_tee".into(), Some("m".into()), "00".repeat(32), U64(NOW_MS + DAY_MS));
+            }),
+            "ERR_ONE_YOCTO",
+        );
+    }
+    assert!(c.get_signer(pk.clone()).is_none());
+    ctx("owner.testnet", 1);
+    c.add_signer(pk.clone(), "provider_tee".into(), Some("m".into()), "00".repeat(32), U64(NOW_MS + DAY_MS));
+    assert!(c.get_signer(pk.clone()).is_some());
+    for dep in [0u128, 2] {
+        ctx("owner.testnet", dep);
+        panics_with(std::panic::AssertUnwindSafe(|| drop(c.remove_signer(pk.clone()))), "ERR_ONE_YOCTO");
+    }
+    assert!(c.get_signer(pk.clone()).is_some());
+    ctx("owner.testnet", 1);
+    assert!(c.remove_signer(pk.clone()));
+}
+
+#[test]
+fn register_receipt_and_claim_stay_callable_with_a_zero_deposit() {
+    // function-call keys must keep working for these two (the helpers attach 0)
+    let vec = v();
+    let mut c = setup(); // register_receipt ran with deposit 0 in setup()
+    let pre = {
+        ctx("alice.testnet", 0);
+        c.preview_claim(acc("shop.testnet"), "A123".into(), b64(&vec["honest"], "response_b64"))
+    };
+    assert!(pre.payout.0 > 0);
+    ctx("alice.testnet", 0);
+    drop(c.claim(acc("shop.testnet"), "A123".into(), b64(&vec["honest"], "response_b64")));
 }

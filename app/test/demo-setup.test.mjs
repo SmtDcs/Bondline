@@ -90,3 +90,24 @@ test('V2 ASSET=near sets up the NEAR path: storage balance, NEAR bond, NEAR orde
   assert.doesNotMatch(lines[orderA], /"token"/, 'a NEAR order carries no token');
   assert.doesNotMatch(res.stdout, /ft_transfer_call|registration_only|tusdc/, 'no token command at all');
 });
+
+test('final review F1: v2 register_order commands attach exactly 1 yoctoNEAR (token and NEAR path)', () => {
+  for (const extra of [{}, { ASSET: 'near', TOKEN_ID: '' }]) {
+    const res = runDry(extra);
+    assert.equal(res.status, 0, res.stderr);
+    const orders = res.stdout.split('\n').filter(l => l.includes('register_order'));
+    assert.equal(orders.length, 2);
+    for (const l of orders) {
+      assert.match(l, /attached-deposit 1 yoctoNEAR /);
+      assert.doesNotMatch(l, /attached-deposit 0 NEAR/);
+    }
+  }
+});
+
+test('REGISTER_ORDER_DEPOSIT overrides the deposit for the pre-redeploy v2 build', () => {
+  const res = runDry({ REGISTER_ORDER_DEPOSIT: '0 NEAR' });
+  assert.equal(res.status, 0, res.stderr);
+  const orders = res.stdout.split('\n').filter(l => l.includes('register_order'));
+  assert.equal(orders.length, 2);
+  for (const l of orders) assert.match(l, /attached-deposit 0 NEAR /);
+});
