@@ -3,7 +3,8 @@
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig, publicConfig, makeRelayer, errCode } from './lib/relayer.mjs';
+import { loadConfig, publicConfig, makeRelayer } from './lib/relayer.mjs';
+import { wrap } from './lib/http.mjs';
 
 const MODE = process.env.MODE ?? 'live';
 const PORT = Number(process.env.PORT ?? 8787);
@@ -21,15 +22,6 @@ if (MODE === 'replay') {
   const cfg = loadConfig();
   handlers = makeRelayer(cfg); cfgPublic = publicConfig(cfg);
 }
-
-const wrap = (fn) => async (req, res) => {
-  try { res.json(await fn(req.body ?? {})); }
-  catch (e) {
-    const code = errCode(e);
-    console.error(new Date().toISOString(), req.path, code, e?.message?.slice(0, 300));
-    res.status(e.status ?? 400).json({ error: code, detail: e.detail ?? String(e.message ?? '').slice(0, 300), tx: e.txHash ?? null });
-  }
-};
 
 app.get('/api/config', (_req, res) => res.json(cfgPublic));
 app.post('/api/chat', wrap(handlers.handleChat));

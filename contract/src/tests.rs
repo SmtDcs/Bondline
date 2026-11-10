@@ -159,8 +159,8 @@ fn expired_signer_rejected() {
 
 const LIVE: &str = include_str!("../tests/live_vector.json");
 
-#[test]
-fn real_near_ai_ed25519_receipt_registers() {
+/// Contract with the REAL S1 vector registered as signer, plus one 2 NEAR order with a 30% cap for it.
+fn live_setup() -> (Contract, Value) {
     let x: Value = near_sdk::serde_json::from_str(LIVE).unwrap();
     ctx("owner.testnet", 0);
     let mut c = Contract::new(acc("owner.testnet"));
@@ -169,25 +169,46 @@ fn real_near_ai_ed25519_receipt_registers() {
     c.register_merchant();
     ctx("shop.testnet", 0);
     c.register_order(s(&x, "order_id"), acc("alice.testnet"), U128(2 * NEAR), 3000);
-    let r = c.register_receipt(s(&x, "order_id"), s(&x, "signed_text"), s(&x, "signature_hex"), s(&x, "signer_public_key_hex"));
+    (c, x)
+}
+
+fn register_live_receipt(c: &mut Contract, x: &Value) -> Receipt {
+    c.register_receipt(s(x, "order_id"), s(x, "signed_text"), s(x, "signature_hex"), s(x, "signer_public_key_hex"))
+}
+
+#[test]
+fn real_near_ai_ed25519_receipt_registers() {
+    let (mut c, x) = live_setup();
+    let r = register_live_receipt(&mut c, &x);
     assert_eq!(r.signature_kind, "provider_tee");
+    // the stored key is the hash of the exact bytes the shopper will claim with
+    assert_eq!(r.response_hash, hex::encode(env::sha256_array(&b64(&x, "response_b64").0)));
     ctx("alice.testnet", 0);
     let p = c.preview_claim(s(&x, "order_id"), b64(&x, "response_b64"));
-    // the spike reply may or may not contain a token; either way the receipt must be found
-    assert_ne!(p.error.as_deref(), Some("ERR_NO_RECEIPT_FOR_BYTES"));
+    // the reply ends with exactly one "PROMISE|refund|order=A123|bps=2000", so a broken parser,
+    // a wrong order match or wrong payout maths on the REAL bytes would show up here
+    assert!(p.ok, "{:?}", p);
+    assert_eq!(p.token_bps, 2000);
+    assert_eq!(p.paid_bps, 2000);
+    assert_eq!(p.payout.0, 400_000_000_000_000_000_000_000u128);
+}
+
+#[test]
+fn real_near_ai_one_changed_byte_has_no_receipt() {
+    let (mut c, x) = live_setup();
+    register_live_receipt(&mut c, &x);
+    let mut bytes = b64(&x, "response_b64").0;
+    let pos = bytes.windows(8).position(|w| w == b"bps=2000").unwrap();
+    bytes[pos + 4] = b'1'; // bps=2000 -> bps=1000: still a valid token, different bytes
+    ctx("alice.testnet", 0);
+    let p = c.preview_claim(s(&x, "order_id"), Base64VecU8(bytes));
+    assert_eq!(p.error.as_deref(), Some("ERR_NO_RECEIPT_FOR_BYTES"));
 }
 
 #[test]
 #[should_panic(expected = "ERR_BAD_SIGNATURE")]
 fn real_near_ai_receipt_with_edited_hash_fails() {
-    let x: Value = near_sdk::serde_json::from_str(LIVE).unwrap();
-    ctx("owner.testnet", 0);
-    let mut c = Contract::new(acc("owner.testnet"));
-    c.add_signer(s(&x, "signer_public_key_hex"), "provider_tee".into(), Some(s(&x, "model")), "00".repeat(32), U64(NOW_MS + 1000));
-    ctx("shop.testnet", 3 * NEAR);
-    c.register_merchant();
-    ctx("shop.testnet", 0);
-    c.register_order(s(&x, "order_id"), acc("alice.testnet"), U128(2 * NEAR), 3000);
+    let (mut c, x) = live_setup();
     let mut text = s(&x, "signed_text");
     let last = text.pop().unwrap();
     text.push(if last == '0' { '1' } else { '0' }); // still valid hex, different hash

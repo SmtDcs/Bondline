@@ -22,12 +22,25 @@ export function accountFromKey(provider, accountId, secretKey) {
  * Throws an Error whose message contains the contract panic string (e.g. "ERR_BAD_SIGNATURE").
  */
 export async function callFinal(account, contractId, methodName, args, { tgas = 100, depositYocto = 0n } = {}) {
-  const outcome = await account.callFunctionRaw({
-    contractId, methodName, args,
-    gas: teraToGas(tgas),
-    deposit: depositYocto,
-    waitUntil: 'FINAL',
-  });
+  let outcome;
+  try {
+    outcome = await account.callFunctionRaw({
+      contractId, methodName, args,
+      gas: teraToGas(tgas),
+      deposit: depositYocto,
+      waitUntil: 'FINAL',
+    });
+  } catch (e) {
+    // near-api-js 7 throws ContractExecutionError on a contract panic, with the outcome attached:
+    // { name, blockHash, blockHeight, transactionResult: { transaction_outcome: { id }, status } }.
+    // Keep the hash: the 400 body must carry tx + explorer (INTERFACES 11).
+    const txHash = e?.transactionResult?.transaction_outcome?.id ?? e?.transactionResult?.transaction?.hash;
+    if (!txHash) throw e;
+    const err = new Error(`tx ${txHash} failed: ${e.message}`);
+    err.txHash = txHash;
+    err.cause = e;
+    throw err;
+  }
   const txHash = outcome.transaction_outcome?.id ?? outcome.transaction?.hash;
   const status = outcome.status;
   if (status && typeof status === 'object' && 'Failure' in status) {
