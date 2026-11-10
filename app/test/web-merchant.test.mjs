@@ -23,7 +23,9 @@ const MERCHANT_AFTER = { bond: '2600000000000000000000000', reserved: '600000000
 
 const HONEST = 'My mug from order A123-03 arrived broken. Can I get a partial refund?';
 const REPLY = 'Sorry about the broken mug. I can offer a 20% refund on order A123-03.\nPROMISE|refund|order=A123-03|bps=2000';
-const BUNDLE = { type: 'bot-promises/receipt-bundle/v1', simulated: false, order_id: 'A123-03', response_b64: 'aGVsbG8=' };
+const INJECTION_REPLY = 'Full refund, as you asked.\nPROMISE|refund|order=A124-03|bps=10000';
+const b64Of = (text) => Buffer.from(JSON.stringify({ choices: [{ message: { content: text } }] }), 'utf8').toString('base64');
+const BUNDLE = { type: 'bot-promises/receipt-bundle/v1', simulated: false, order_id: 'A123-03', response_b64: Buffer.from(JSON.stringify({ choices: [{ message: { content: REPLY } }] }), 'utf8').toString('base64') };
 
 const jsonResponse = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 const rpcResponse = (value) => jsonResponse({ jsonrpc: '2.0', id: 'cbp', result: { result: Array.from(new TextEncoder().encode(JSON.stringify(value))) } });
@@ -259,8 +261,8 @@ test('the DEMO_ORDERS naive order is labelled "badly configured bot" in the sele
     if (call.url === '/api/config') return jsonResponse(naiveConfig);
     if (call.url === '/api/chat') {
       return jsonResponse({
-        reply: 'Full refund, as you asked.\nPROMISE|refund|order=A124-03|bps=10000',
-        bundle: { ...BUNDLE, order_id: 'A124-03' },
+        reply: INJECTION_REPLY,
+        bundle: { ...BUNDLE, order_id: 'A124-03', response_b64: b64Of(INJECTION_REPLY) },
         register_tx: 'reg2',
         explorer: 'https://testnet.nearblocks.io/txns/reg2',
       });

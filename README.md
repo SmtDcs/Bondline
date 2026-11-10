@@ -8,6 +8,7 @@ Built at NEAR HACKATHON (2026-11) by Samet. Track: Real-World Money (`realworld`
 - Merchant: `cbp-shop-sm1110.testnet` - Shopper: `cbp-alice-sm1110.testnet`
 - Bot model: NEAR AI Cloud `z-ai/glm-5.3-flash`; TEE signer `5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff` (ed25519)
 - Recorded run: `fixtures/replay/transcript.json` (2026-11-10)
+- Open items before submission (video, X post, tag): `docs/SUBMISSION.md`
 
 ## What NEAR does here
 - The contract `cbp-sm1110.testnet` holds the shop's bond and runs `env::ed25519_verify` on the NEAR AI TEE signature over `z-ai/glm-5.3-flash:sha256(request bytes):sha256(response bytes)` (`contract/src/lib.rs`, `register_receipt`).
@@ -19,11 +20,11 @@ Built at NEAR HACKATHON (2026-11) by Samet. Track: Real-World Money (`realworld`
 Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys, no Rust for steps 1-4 and 6.
 
 1. `npm ci` - installs the three direct dependencies (181 packages with their dependencies). On Node 22 it prints `EBADENGINE` warnings for `@nearai/inference-sdk`, which declares Node >= 24.22.1: only `npm run attest` and `npm run spike:s1` import that SDK, so the warnings do not affect anything below.
-2. `npm run verify:fixtures` - last line `ALL VERIFIED (6 bundles)`: real NEAR AI receipts re-checked offline (hashes, signed text, ed25519 signature); the tampered fixture must be reported as tamper detected.
+2. `npm run verify:fixtures` - last line `ALL VERIFIED (6 bundles)`: 4 real NEAR AI receipts + 2 SIMULATED bundles (printed `PASS (SIMULATED key)`, signed with a fake key), re-checked offline (hashes, signed text, ed25519 signature). Offline, the signature is checked against the `signing_address` stored in the bundle itself, which proves the bundle is self-consistent; for the 4 real bundles the script also checks that this address is in the verified signer list of `fixtures/attestation/*.json` and prints that as a row. The attestation is the evidence that the key belongs to the NEAR AI TEE, not the signature check. The tampered fixture must be reported as tamper detected.
 3. `npm run verify -- fixtures/live/a123.json` - last line `VERIFIED`: also checks testnet (signer registered, receipt on chain, preview_claim). Order A123-11 is already claimed, so `preview_claim` answers `ERR_ALREADY_CLAIMED`, which still passes: the signer and receipt checks are the point. If testnet RPC is unreachable, run `npm run verify -- fixtures/live/a123.json --offline` (VERIFIED, off-chain checks only); without `--offline` the same case prints one `FAIL  testnet RPC unreachable` row and `NOT VERIFIED` (exit 1).
 4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the recorded badges and the Claim button show up: the plain URL http://127.0.0.1:8787 runs the same replay but asks testnet for the BINDING check, and both recorded orders are already claimed on chain, so it shows `ERR_ALREADY_CLAIMED` (the honest live state) instead of the claimable badges. `?offline=1` touches nothing but localhost.
 5. (Rust 1.95 installed) `npm run test:contract` - see `test result: ok. 16 passed; 0 failed`.
-6. `npm run test:js` - see `# fail 0` (77 tests).
+6. `npm run test:js` - see `# fail 0` (80 tests).
 
 ## Verify each claim
 | Claim | Do | See |
@@ -87,7 +88,7 @@ Trust boundaries:
 | Contract owner (`cbp-sm1110.testnet`) | registering only attested signer keys (off-chain check, record hash on chain) | money: it cannot move bonds |
 | Merchant / relayer | choosing to register a reply (the registration is the merchant's authorization; a reply it does not register is shown as NOT A PROMISE) | editing a reply (signature check), exceeding `max_bps`, withdrawing reserved bond |
 | Shopper | nothing | cannot register receipts (`ERR_NOT_ORDER_MERCHANT`), cannot claim twice or with edited bytes |
-| Browser BINDING check | its own RPC views | the relayer's word |
+| Browser BINDING check | its own RPC views; the reply text it shows is decoded from the same `response_b64` bytes it hashes | the relayer's word (the relayer's separate `reply` string is ignored; a difference is flagged) |
 
 Known limits (also stated in `docs/plan/PLAN.md` section 4 and in the contract comments):
 - The merchant can refuse to register a reply. Then the shopper sees NOT A PROMISE (no receipt on chain), which is the honest state; the bot's promise alone is not binding.
@@ -97,6 +98,15 @@ Known limits (also stated in `docs/plan/PLAN.md` section 4 and in the contract c
 - Wallet login for the shopper is not implemented: the demo keeps a claim-only function-call key on the laptop and labels it.
 - There is no order expiry and no way to release an unclaimed reservation; the reserved liability stays until the order is claimed.
 - Only one token kind (`refund`) exists, with no discounts, replacements or disputes.
+- The TEE signer registered with `add_signer` has an expiry (`expires_at_ms`, `--days N` in `npm run attest`). After it, `register_receipt` fails with the signer error; receipts already on chain stay valid. To renew: `npm run attest -- --model z-ai/glm-5.3-flash --days N`, then run the `add_signer` command it prints (owner key). The operator renews it before judging.
+
+### Known limitations (contract v1)
+The contract on testnet (`cbp-sm1110.testnet`, wasm sha256 `c4d88ead…`) is frozen for the submission. These are known, understood, and fixed in v2 (not in this deploy):
+
+| # | Limitation | Scenario | Impact | v2 fix |
+| --- | --- | --- | --- | --- |
+| 1 | No storage deposit | Anyone calls `register_merchant` with 1 NEAR, withdraws it (`reserved = 0`), then `register_order` with `amount=1, max_bps=1` (liability rounds to 0) in a loop, and `register_receipt` stores data even for claimed orders. Every byte is staked from the contract's own balance, which also holds all merchants' bonds. | A spammer can drain the contract's free balance toward insolvency; once the contract cannot cover storage, a detached `claim` transfer can fail (`LackBalanceForState`) after the order is already marked paid and the bond lowered, so the shopper loses that payout. Testnet demo only: the contract keeps its own storage buffer (R4 check: >= 3 NEAR beyond bonds) and nobody holds real money. | Measure `env::storage_usage()` before/after in `register_order` and `register_receipt` and charge the cost to the merchant's free bond (or require an attached deposit); require `liability > 0` or a minimum amount; add a callback on the `claim` transfer that restores state if it fails. |
+| 2 | Global order-id namespace | `orders` is keyed by `order_id` alone, not `(merchant, order_id)`. Another registered merchant can register an id first (`ERR_ORDER_EXISTS` for the real shop), naming any buyer. Only that order's merchant can then register receipts for it. | Order-id squatting: a hostile merchant can block or confuse ids of another shop. It cannot take money from another merchant's bond (each order is paid from its own merchant's bond) or register receipts for orders it does not own. | Key orders by `(merchant, order_id)` (or prefix the id with the merchant account) and include the merchant in `claim`. |
 
 ## Contract surface
 | Method | Kind | Who | Effect |
@@ -144,10 +154,10 @@ The plan and `skeleton/` (the contract and the `app/lib` / `app/scripts` helpers
 near-sdk 5.30.1, hex 0.4.3 (Rust); near-api-js 7.4.0, @nearai/inference-sdk 0.3.0, express 5.3.0 (Node); cargo-near 0.23.0, near-cli-rs 0.31.1.
 
 ## Other project by the same builder (Q-015)
-Samet also builds **ZeroInit** for NEAR HACKATHON. The two projects are independent. The ZeroInit repository link is added at submission time:
+Samet also builds **ZeroInit** for NEAR HACKATHON. The two projects are independent. The ZeroInit repository is private until submission and public by the deadline:
 
 ```
-ZeroInit repo: <ZEROINIT_REPO_URL>
+ZeroInit repo: https://github.com/SmtDcs/zeroinit
 ```
 
 ## What this is not

@@ -21,7 +21,7 @@ const CONFIG = {
 
 const HONEST = 'My mug from order A123-06 arrived broken. Can I get a partial refund?';
 const REPLY = 'Sorry about the broken mug. I can offer a 20% refund on order A123-06.\nPROMISE|refund|order=A123-06|bps=2000';
-const REPLY_BYTES = Buffer.from(REPLY, 'utf8');
+const REPLY_BYTES = Buffer.from(JSON.stringify({ choices: [{ message: { content: REPLY } }] }), 'utf8');
 const RESPONSE_B64 = REPLY_BYTES.toString('base64');
 const RESPONSE_HASH = createHash('sha256').update(REPLY_BYTES).digest('hex');
 const BUNDLE = {
@@ -135,14 +135,14 @@ test('tamperResponseB64 decodes the exact bundle bytes, edits the token and re-e
   const app = await import('../../web/app.js?tamper-b64');
   const edited = app.tamperResponseB64(RESPONSE_B64);
   const text = Buffer.from(edited, 'base64').toString('utf8');
-  assert.equal(text, REPLY.replace('bps=2000', 'bps=3000'));
+  assert.equal(text, REPLY_BYTES.toString('utf8').replace('bps=2000', 'bps=3000'));
   assert.notEqual(edited, RESPONSE_B64);
   assert.equal(app.tamperResponseB64(Buffer.from('no token').toString('base64')), null);
 });
 
 test('every bot bubble gets a Tamper button; clicking it shows ERR_NO_RECEIPT_FOR_BYTES and both hashes', async () => {
   const { els, body } = fakePage();
-  const editedB64 = Buffer.from(REPLY.replace('bps=2000', 'bps=3000'), 'utf8').toString('base64');
+  const editedB64 = Buffer.from(REPLY_BYTES.toString('utf8').replace('bps=2000', 'bps=3000'), 'utf8').toString('base64');
   const { calls, restore } = stubFetch(liveHandler({ tamperedB64: () => editedB64 }));
   try {
     const app = await import('../../web/app.js?tamper-dom');
@@ -185,7 +185,7 @@ test('every bot bubble gets a Tamper button; clicking it shows ERR_NO_RECEIPT_FO
 
 test('after a claim the Claim button stays clickable and the second click shows the 400 ERR_ALREADY_CLAIMED', async () => {
   const { els, body } = fakePage();
-  const editedB64 = Buffer.from(REPLY.replace('bps=2000', 'bps=3000'), 'utf8').toString('base64');
+  const editedB64 = Buffer.from(REPLY_BYTES.toString('utf8').replace('bps=2000', 'bps=3000'), 'utf8').toString('base64');
   let claimPosts = 0;
   const handler = (call) => {
     if (call.url === '/api/demo/claim') {

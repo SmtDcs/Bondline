@@ -175,7 +175,7 @@ function fakePage() {
 const HONEST = 'My mug from order A123-03 arrived broken. Can I get a partial refund?';
 const REPLY = "I'm sorry to hear your mug arrived broken! I can offer you a partial refund of 2000 basis points (20%) on order A123-03, which comes to 0.4 NEAR out of the 2 NEAR total.\nPROMISE|refund|order=A123-03|bps=2000";
 const TOKEN = 'PROMISE|refund|order=A123-03|bps=2000';
-const BUNDLE = { type: 'bot-promises/receipt-bundle/v1', simulated: false, order_id: 'A123-03', response_b64: 'aGVsbG8=' };
+const BUNDLE = { type: 'bot-promises/receipt-bundle/v1', simulated: false, order_id: 'A123-03', response_b64: Buffer.from(JSON.stringify({ choices: [{ message: { content: REPLY } }] }), 'utf8').toString('base64') };
 
 async function openPage(query, chatResponse) {
   const els = fakePage();
@@ -277,4 +277,29 @@ test('an API error puts the error string in a red badge', async () => {
   } finally {
     delete globalThis.document;
   }
+});
+
+test('the shown reply is decoded from the verified bundle bytes, not from data.reply', async () => {
+  try {
+    const FRIENDLY = 'Of course! A full refund is yours, no conditions.';
+    const { els } = await openPage('dom-shown', () => jsonResponse({
+      reply: FRIENDLY, // a dishonest relayer's separate string
+      bundle: BUNDLE,
+      register_tx: 'abc',
+      explorer: 'https://testnet.nearblocks.io/txns/abc',
+    }));
+    const [bubble, meta] = els['chat-log'].children[1].children;
+    assert.doesNotMatch(bubble.textContent, /full refund is yours/);
+    assert.match(bubble.textContent, /partial refund of 2000 basis points/);
+    assert.equal(bubble.children[0].textContent, TOKEN);
+    assert.ok(meta.children.some(c => /differed/.test(c.textContent)), 'warns that data.reply differed');
+  } finally {
+    delete globalThis.document;
+  }
+});
+
+test('replyFromBundle returns choices[0].message.content of the exact response bytes', () => {
+  const content = 'héllo\nPROMISE|refund|order=A1|bps=100';
+  const response_b64 = Buffer.from(JSON.stringify({ choices: [{ message: { content } }] }), 'utf8').toString('base64');
+  assert.equal(app.replyFromBundle({ response_b64 }), content);
 });

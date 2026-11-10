@@ -37,8 +37,8 @@ test('a good set exits 0 with the bundle count', (t) => {
 
   const r = run(root);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /PASS fixtures\/simulated\/honest\.json/);
-  assert.match(r.out, /PASS fixtures\/simulated\/injection\.json/);
+  assert.match(r.out, /PASS \(SIMULATED key\) fixtures\/simulated\/honest\.json/);
+  assert.match(r.out, /PASS \(SIMULATED key\) fixtures\/simulated\/injection\.json/);
   assert.equal(lastLine(r.out), 'ALL VERIFIED (2 bundles)');
 });
 
@@ -90,5 +90,26 @@ test('a missing fixture directory exits 1 and says so', (t) => {
   const r = run(root);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /FAIL fixtures\/simulated \(missing directory\)/);
+  assert.equal(lastLine(r.out), 'SOME FAILED');
+});
+
+test('a real bundle must use a signing_address listed in fixtures/attestation (self-consistency is not enough)', (t) => {
+  const real = { ...load('fixtures/live/a123.json') };
+  const record = load('fixtures/attestation/z-ai_glm-5.3-flash-ed25519-2026-11-10.json');
+
+  const ok = tempRepo(t, ['fixtures/live', 'fixtures/simulated', 'fixtures/attestation']);
+  write(ok, 'fixtures/live/a123.json', real);
+  write(ok, 'fixtures/attestation/rec.json', record);
+  const good = run(ok);
+  assert.equal(good.status, 0, good.out);
+  assert.match(good.out, /PASS fixtures\/live\/a123\.json/);
+  assert.match(good.out, /signing_address 5a0210f2442c\.\.\. is in fixtures\/attestation\/ verified signer list: yes/);
+
+  const bad = tempRepo(t, ['fixtures/live', 'fixtures/simulated', 'fixtures/attestation']);
+  write(bad, 'fixtures/live/a123.json', real);
+  write(bad, 'fixtures/attestation/rec.json', { ...record, verified: [] });
+  const r = run(bad);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /FAIL fixtures\/live\/a123\.json signing_address 5a0210f2442c\.\.\. not in fixtures\/attestation\//);
   assert.equal(lastLine(r.out), 'SOME FAILED');
 });

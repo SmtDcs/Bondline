@@ -1,6 +1,9 @@
 let CFG;
 const $ = (id) => document.getElementById(id);
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+/** The assistant text inside the exact response bytes (bundle.response_b64). */
+export const replyFromBundle = (bundle) =>
+  JSON.parse(new TextDecoder().decode(b64ToBytes(bundle.response_b64))).choices[0].message.content;
 const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
 const OFFLINE = new URLSearchParams(location.search).has('offline');
 let REPLAY_TRANSCRIPT = null; // T19: recorded run, loaded only when CFG.mode === 'replay'
@@ -405,7 +408,11 @@ async function onSubmit(event) {
     bot.row.orderId = orderId;
     bot.row.views = data.views; // T19 replay: the recorded views drive ?offline=1
     bot.bubble.bundle = data.bundle;
-    renderReply(bot.bubble, data.reply);
+    // Show the text of the verified bytes (the ones BINDING hashes and claim uses), never the relayer's
+    // separate data.reply string.
+    const shown = replyFromBundle(data.bundle);
+    if (typeof data.reply === 'string' && data.reply !== shown) bot.meta.append(element('span', 'badge naive', 'relayer text differed from the signed bytes'));
+    renderReply(bot.bubble, shown);
     if (data.explorer) bot.links.append(link('receipt tx', data.explorer));
     if (data.bundle?.simulated) bot.meta.append(element('span', 'badge simulated', 'SIMULATED'));
     // PLAN R4: say out loud that this order's bot is the badly configured one.
