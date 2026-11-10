@@ -284,6 +284,20 @@ button.claim {
   font-size: 0.8rem;
 }
 
+button.tamper {
+  align-self: flex-start;
+  padding: 4px 13px;
+  background: #7c2d12;
+  font-size: 0.8rem;
+}
+
+.tamper-result {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 #footer {
   padding: 12px 20px 24px;
   color: var(--muted);

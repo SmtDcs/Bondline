@@ -1,6 +1,7 @@
 let CFG;
 const $ = (id) => document.getElementById(id);
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
 const OFFLINE = new URLSearchParams(location.search).has('offline');
 
 const BOND_REFRESH_MS = 10_000;
@@ -52,6 +53,24 @@ export function splitTokenLine(reply) {
   const i = lines.findIndex(line => line.includes('PROMISE|'));
   if (i < 0) return { text: lines.join('\n'), token: null };
   return { text: lines.filter((_, j) => j !== i).join('\n').trimEnd(), token: lines[i].trim() };
+}
+
+/** T17 tamper beat: rewrite the token's bps to make the exact response bytes different.
+ *  First `bps=2000` becomes `bps=3000`; with no `bps=2000`, the first digit after `bps=`
+ *  becomes 3 (e.g. `bps=10000` -> `bps=30000`). Returns null when the reply has no bps=. */
+export function tamperText(reply) {
+  const text = String(reply ?? '');
+  if (text.includes('bps=2000')) return text.replace('bps=2000', 'bps=3000');
+  const m = /bps=\d/.exec(text);
+  if (!m) return null;
+  const digit = m.index + 'bps='.length;
+  return text.slice(0, digit) + '3' + text.slice(digit + 1);
+}
+
+/** T17: edit the decoded bundle.response_b64 and re-encode it (exact edited bytes for bindingStatus). */
+export function tamperResponseB64(responseB64) {
+  const edited = tamperText(new TextDecoder().decode(b64ToBytes(responseB64)));
+  return edited === null ? null : bytesToB64(new TextEncoder().encode(edited));
 }
 
 /** Merchant pane meter (T16): bond, reserved, free = bond - reserved, paid_out, 3 decimals. */
@@ -194,6 +213,7 @@ function addClaim(row) {
 async function claim(row, btn) {
   const bundle = row.bundle;
   btn.disabled = true;
+  let failed = false;
   try {
     const res = await fetch('/api/demo/claim', {
       method: 'POST',
@@ -202,22 +222,71 @@ async function claim(row, btn) {
     });
     const data = await res.json();
     if (!res.ok) {
+      failed = true;
       setBadge(row.statusBadge, { cls: 'error', text: data.error ?? `HTTP ${res.status}` });
       showToast(data.error ?? `HTTP ${res.status}`, null, 'toast error');
       return;
     }
     showToast(claimToastText(data.result.payout), data.explorer);
   } catch (err) {
+    failed = true;
     showToast(err.message, null, 'toast error');
   } finally {
+    // T17: the button stays clickable after a claim; a second click shows the 400 ERR_ALREADY_CLAIMED.
     btn.disabled = false;
-    try {
-      const views = await bindingStatus(row.orderId, bundle.response_b64);
-      setBadge(row.statusBadge, badgeText(views));
-    } catch (err) {
-      setBadge(row.statusBadge, { cls: 'error', text: err.message });
+    if (!failed) {
+      try {
+        const views = await bindingStatus(row.orderId, bundle.response_b64);
+        setBadge(row.statusBadge, badgeText(views));
+      } catch (err) {
+        setBadge(row.statusBadge, { cls: 'error', text: err.message });
+      }
     }
     await refreshBondMeter().catch(() => {});
+  }
+}
+
+function addTamper(row) {
+  if (row.tamperButton) return;
+  const btn = element('button', 'tamper', 'Tamper');
+  btn.addEventListener('click', () => tamper(row, btn));
+  row.tamperButton = btn;
+  row.append(btn);
+}
+
+/** T17: tamper the reply bytes, ask the contract about the edited bytes, show the badge + hashes. */
+async function tamper(row, btn) {
+  const editedB64 = tamperResponseB64(row.bundle.response_b64);
+  if (editedB64 === null) {
+    showToast('nothing to tamper: the reply has no bps=', null, 'toast error');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const originalHash = row.bundle.response_hash ?? await sha256Hex(b64ToBytes(row.bundle.response_b64));
+    const editedHash = await sha256Hex(b64ToBytes(editedB64));
+    const views = await bindingStatus(row.orderId, editedB64);
+    // The edited bytes have no receipt: surface the contract's preview error (ERR_NO_RECEIPT_FOR_BYTES)
+    // instead of badgeText's "NOT A PROMISE" (which is for replies that were never registered at all).
+    const view = views.preview?.ok ? badgeText(views) : { cls: 'error', text: views.preview?.error ?? 'ERR_NO_RECEIPT_FOR_BYTES' };
+    setBadge(row.statusBadge, view);
+    showTamperResult(row, view, originalHash, editedHash);
+  } catch (err) {
+    setBadge(row.statusBadge, { cls: 'error', text: err.message });
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showTamperResult(row, view, originalHash, editedHash) {
+  const box = row.tamperResult ?? element('div', 'tamper-result');
+  box.replaceChildren(
+    element('span', `badge ${view.cls}`, view.text),
+    element('span', 'hash', `orig ${originalHash.slice(0, 12)} · edited ${editedHash.slice(0, 12)}`),
+  );
+  if (!row.tamperResult) {
+    row.tamperResult = box;
+    row.append(box);
   }
 }
 
@@ -269,6 +338,8 @@ async function onSubmit(event) {
     if (data.explorer) bot.links.append(link('receipt tx', data.explorer));
     if (data.bundle?.simulated) bot.meta.append(element('span', 'badge simulated', 'SIMULATED'));
     updateRegisterEdited();
+    // T17: every bot bubble can be tampered with, whatever the BINDING check said.
+    addTamper(bot.row);
     const views = await bindingStatus(orderId, data.bundle.response_b64);
     const view = badgeText(views);
     setBadge(bot.status, view);
