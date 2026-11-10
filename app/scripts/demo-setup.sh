@@ -61,4 +61,4 @@ for ID in "A123-$RUN" "A124-$RUN"; do
   near contract call-function as-transaction "$CONTRACT_ID" register_order json-args "{\"order_id\":\"$ID\",\"buyer\":\"$BUYER_ID\",\"amount\":\"$TWO_NEAR\",\"max_bps\":3000}" prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as "$MERCHANT_ID" network-config testnet sign-with-legacy-keychain send
 done
 merchant_json
-echo "Now set DEMO_ORDERS=\"A123-$RUN:Broken mug:2000,A124-$RUN:Late delivery:2000\" in .env"
+echo "Now set DEMO_ORDERS=\"A123-$RUN:Broken mug:2000,A124-$RUN:Late delivery:2000:naive\" in .env (the trailing :naive marks the badly configured bot, PLAN R4)"

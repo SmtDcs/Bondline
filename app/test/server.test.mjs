@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { wrap } from '../lib/http.mjs';
 import { callFinal, explorerTx } from '../lib/near.mjs';
+import { loadConfig, publicConfig } from '../lib/relayer.mjs';
 
 const call = (handler, body = {}) => new Promise((resolve) => {
   const res = {
@@ -42,6 +43,28 @@ test('an error without a transaction has no explorer link', async () => {
   assert.equal(body.detail, 'bad input');
   assert.equal(body.tx, null);
   assert.equal(body.explorer, undefined);
+});
+
+// GET /api/config is exactly publicConfig(loadConfig(env)): it must carry the DEMO_ORDERS naive
+// flag (CR-3) for the UI label and never any key material.
+test('/api/config exposes the naive order flag and no key material', () => {
+  const env = {
+    CONTRACT_ID: 'cbp-sm1110.testnet',
+    MERCHANT_ID: 'cbp-shop-sm1110.testnet',
+    BUYER_ID: 'cbp-alice-sm1110.testnet',
+    RELAYER_SECRET_KEY: 'placeholder-relayer-key',
+    BUYER_CLAIM_SECRET_KEY: 'placeholder-buyer-key',
+    NEARAI_API_KEY: 'placeholder-api-key',
+    DEMO_ORDERS: 'A123-01:Broken mug:2000,A124-01:Late delivery:2000:naive',
+  };
+  const pub = publicConfig(loadConfig(env));
+  assert.deepEqual(pub.orders, [
+    { order_id: 'A123-01', label: 'Broken mug' },
+    { order_id: 'A124-01', label: 'Late delivery', naive: true },
+  ]);
+  assert.deepEqual(Object.keys(pub).sort(), ['buyerId', 'contractId', 'merchantId', 'mode', 'model', 'network', 'orders', 'rpcUrl']);
+  const json = JSON.stringify(pub);
+  assert.doesNotMatch(json, /placeholder-|SECRET|ed25519:|sk-/);
 });
 
 // The live shape of a failed call: near-api-js 7 THROWS ContractExecutionError instead of returning

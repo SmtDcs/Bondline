@@ -209,6 +209,7 @@ button:disabled {
 .badge.binding { background: var(--binding-bg); color: var(--binding-ink); }
 .badge.error { background: var(--error-bg); color: var(--error-ink); }
 .badge.simulated { background: var(--simulated-bg); color: var(--simulated-ink); }
+.badge.naive { background: #fef3c7; color: #92400e; }
 
 .token {
   display: block;

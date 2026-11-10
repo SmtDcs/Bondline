@@ -47,6 +47,18 @@ export async function loadConfig(url = '/api/config') {
   return CFG;
 }
 
+const NAIVE_LABEL = 'badly configured bot';
+
+/** PLAN R4: the naive (jailbroken) demo order must be labelled in the UI. */
+export function orderLabel(order) {
+  const base = order?.label ? `${order.order_id} · ${order.label}` : String(order?.order_id ?? '');
+  return order?.naive ? `${base} · ${NAIVE_LABEL}` : base;
+}
+
+export function isNaiveOrder(orders, orderId) {
+  return (orders ?? []).some(o => o && typeof o === 'object' && o.order_id === orderId && o.naive === true);
+}
+
 /** The bot's reply keeps its text, but the PROMISE token line gets its own element. */
 export function splitTokenLine(reply) {
   const lines = String(reply ?? '').split('\n');
@@ -337,6 +349,8 @@ async function onSubmit(event) {
     renderReply(bot.bubble, data.reply);
     if (data.explorer) bot.links.append(link('receipt tx', data.explorer));
     if (data.bundle?.simulated) bot.meta.append(element('span', 'badge simulated', 'SIMULATED'));
+    // PLAN R4: say out loud that this order's bot is the badly configured one.
+    if (isNaiveOrder(CFG.orders, orderId)) bot.meta.append(element('span', 'badge naive', NAIVE_LABEL));
     updateRegisterEdited();
     // T17: every bot bubble can be tampered with, whatever the BINDING check said.
     addTamper(bot.row);
@@ -357,7 +371,7 @@ async function init() {
   $('contract-link').replaceChildren(link(cfg.contractId, `https://testnet.nearblocks.io/address/${cfg.contractId}`));
   const select = $('order-select');
   for (const order of cfg.orders ?? []) {
-    const option = element('option', '', order.label ? `${order.order_id} · ${order.label}` : order.order_id);
+    const option = element('option', '', orderLabel(order));
     option.value = order.order_id;
     select.append(option);
   }

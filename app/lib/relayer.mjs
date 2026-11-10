@@ -6,13 +6,35 @@ import path from 'node:path';
 import { buildRequestBytes, chatExact, fetchSignature, checkBundle, sha256Hex } from './nearai.mjs';
 import { makeProvider, accountFromKey, callFinal, explorerTx } from './near.mjs';
 
+/**
+ * A badly configured (naive) order is told it may promise up to 100% (TASKS T06/S2). This is a
+ * SYSTEM-PROMPT input only: the order's on-chain max_bps (3000 in the demo) still caps the payout.
+ */
+export const NAIVE_POLICY_BPS = 10000;
+
+export const DEFAULT_DEMO_ORDERS = 'A123-01:Broken mug:2000,A124-01:Late delivery:2000:naive';
+
+/**
+ * DEMO_ORDERS = `order_id:label:policy_bps[:naive]`, comma separated (INTERFACES 13 plus CR-3:
+ * the optional trailing `naive` flag labels the badly configured bot; without it the order gets the
+ * honest prompt and its own policy_bps). The flag is the ONLY switch: no order id is special.
+ */
+export function parseDemoOrders(value = DEFAULT_DEMO_ORDERS) {
+  return String(value).split(',').filter(s => s.trim() !== '').map(rawEntry => {
+    const entry = rawEntry.trim();
+    const [order_id, label, policy, flag, ...rest] = entry.split(':');
+    const policy_bps = Number(policy);
+    const bad = (why) => new Error(`bad DEMO_ORDERS entry ${JSON.stringify(entry)}: ${why} (expected order_id:label:policy_bps[:naive])`);
+    if (!order_id || !label || !Number.isInteger(policy_bps) || policy_bps <= 0 || rest.length > 0) throw bad('malformed');
+    if (flag !== undefined && flag !== 'naive') throw bad(`unknown flag ${JSON.stringify(flag)}`);
+    return { order_id: order_id.trim(), label: label.trim(), policy_bps, naive: flag === 'naive' };
+  });
+}
+
 export function loadConfig(env = process.env) {
   const need = ['CONTRACT_ID', 'MERCHANT_ID', 'RELAYER_SECRET_KEY', 'BUYER_ID', 'BUYER_CLAIM_SECRET_KEY', 'NEARAI_API_KEY'];
   for (const k of need) if (!env[k]) throw new Error(`missing env ${k} (see .env.example)`);
-  const orders = (env.DEMO_ORDERS ?? 'A123-01:Broken mug:2000,A124-01:Late delivery:2000').split(',').map(s => {
-    const [order_id, label, policy_bps] = s.split(':');
-    return { order_id, label, policy_bps: Number(policy_bps) };
-  });
+  const orders = parseDemoOrders(env.DEMO_ORDERS ?? DEFAULT_DEMO_ORDERS);
   return {
     mode: 'live', network: 'testnet',
     rpcUrl: env.NEAR_RPC_URL ?? 'https://test.rpc.fastnear.com',
@@ -26,13 +48,20 @@ export function loadConfig(env = process.env) {
 /** Public part of the config (never includes keys). */
 export function publicConfig(cfg) {
   const { mode, network, rpcUrl, contractId, merchantId, buyerId, model, orders } = cfg;
-  return { mode, network, rpcUrl, contractId, merchantId, buyerId, model, orders: orders.map(({ order_id, label }) => ({ order_id, label })) };
+  // `naive` is additive (CR-3) and only present when true, so the honest /api/config payload is unchanged.
+  return {
+    mode, network, rpcUrl, contractId, merchantId, buyerId, model,
+    orders: orders.map(({ order_id, label, naive }) => ({ order_id, label, ...(naive ? { naive: true } : {}) })),
+  };
 }
 
 export function makeRelayer(cfg, deps = {}) {
   const provider = deps.provider ?? makeProvider(cfg.rpcUrl);
   const merchant = deps.merchant ?? accountFromKey(provider, cfg.merchantId, cfg.relayerKey);
   const buyer = deps.buyer ?? accountFromKey(provider, cfg.buyerId, cfg.buyerKey);
+  // Overridable so tests can assert the exact request bytes without a paid NEAR AI call.
+  const buildBytes = deps.buildRequestBytes ?? buildRequestBytes;
+  const chatOnce = deps.chatExact ?? chatExact;
   const history = new Map(); // order_id -> [{role, content}]
   const bundleDir = 'data/bundles';
   fs.mkdirSync(bundleDir, { recursive: true });
@@ -44,18 +73,19 @@ export function makeRelayer(cfg, deps = {}) {
     if (!order) throw Object.assign(new Error('ERR_NO_ORDER'), { status: 404 });
     if (String(order.merchant) !== cfg.merchantId) throw badRequest(`order ${order_id} belongs to ${order.merchant}, not ${cfg.merchantId}`);
     if (order.status !== 'open') throw Object.assign(new Error('ERR_ALREADY_CLAIMED'), { status: 400, detail: `order ${order_id} is ${order.status}` });
-    const meta = cfg.orders.find(o => o.order_id === order_id) ?? { policy_bps: 2000 };
+    const meta = cfg.orders.find(o => o.order_id === order_id) ?? { policy_bps: 2000, naive: false };
     const amountNear = (Number(BigInt(order.amount) / 10n ** 21n) / 1000).toString(); // display only
     const turns = history.get(order_id) ?? [];
-    // docs/spike-s2.md: the A124 demo order is the badly configured bot (naive policy, offers 100%).
-    // This changes the system prompt only; the on-chain max_bps stays 3000, so the contract caps the payout.
-    const naive = order_id.startsWith('A124');
-    const requestBytes = buildRequestBytes({
+    // The DEMO_ORDERS `naive` flag marks the badly configured bot (docs/spike-s2.md, PLAN R4).
+    // It changes the system prompt (and the policy the bot is told about) only; the on-chain max_bps
+    // stays 3000, so the contract caps the payout.
+    const naive = meta.naive === true;
+    const requestBytes = buildBytes({
       model: cfg.model, orderId: order_id, amountNear,
-      maxPolicyBps: naive ? 10000 : meta.policy_bps,
+      maxPolicyBps: naive ? NAIVE_POLICY_BPS : meta.policy_bps,
       history: turns, userMessage: message, naivePolicy: naive,
     });
-    const chat = await chatExact({ apiKey: cfg.nearaiKey, requestBytes });
+    const chat = await chatOnce({ apiKey: cfg.nearaiKey, requestBytes });
     const signature = await fetchSignature({ apiKey: cfg.nearaiKey, chatId: chat.chatId, model: cfg.model, signingAlgo: cfg.signingAlgo });
     const chatId = safeChatId(chat.chatId);
     const bundle = {
