@@ -16,3 +16,8 @@ test('add_signer command attaches 1 yoctoNEAR by default', () => {
 test('the deposit can be overridden for the pre-redeploy build', () => {
   assert.match(addSignerCommand({ contractId: 'c.testnet', args, deposit: '0 NEAR' }), /attached-deposit '0 NEAR'/);
 });
+
+test('the ADD_SIGNER_DEPOSIT override for the pre-redeploy build is gone from `npm run attest`', async () => {
+  const { readFileSync } = await import('node:fs');
+  assert.doesNotMatch(readFileSync(new URL('../scripts/attest.mjs', import.meta.url), 'utf8'), /ADD_SIGNER_DEPOSIT/);
+});

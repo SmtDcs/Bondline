@@ -104,10 +104,17 @@ test('final review F1: v2 register_order commands attach exactly 1 yoctoNEAR (to
   }
 });
 
-test('REGISTER_ORDER_DEPOSIT overrides the deposit for the pre-redeploy v2 build', () => {
-  const res = runDry({ REGISTER_ORDER_DEPOSIT: '0 NEAR' });
-  assert.equal(res.status, 0, res.stderr);
-  const orders = res.stdout.split('\n').filter(l => l.includes('register_order'));
-  assert.equal(orders.length, 2);
-  for (const l of orders) assert.match(l, /attached-deposit 0 NEAR /);
+test('the 0-deposit override for the pre-redeploy v2 build is gone: REGISTER_ORDER_DEPOSIT is ignored', () => {
+  // This replaces the test that used to assert the override works. The behaviour was removed on purpose
+  // after the operator redeployed the market with the 1-yocto check (2026-11-10); a 0 deposit is now a failure.
+  for (const extra of [{}, { ASSET: 'near', TOKEN_ID: '' }]) {
+    const res = runDry({ ...extra, REGISTER_ORDER_DEPOSIT: '0 NEAR' });
+    assert.equal(res.status, 0, res.stderr);
+    const orders = res.stdout.split('\n').filter(l => l.includes('register_order'));
+    assert.equal(orders.length, 2);
+    for (const l of orders) {
+      assert.match(l, /attached-deposit 1 yoctoNEAR /);
+      assert.doesNotMatch(l, /attached-deposit 0 NEAR/);
+    }
+  }
 });

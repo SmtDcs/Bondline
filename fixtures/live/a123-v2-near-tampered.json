@@ -1,0 +1,26 @@
+{
+  "type": "bot-promises/receipt-bundle/v1",
+  "simulated": false,
+  "order_id": "A123-22",
+  "model": "z-ai/glm-5.3-flash",
+  "chat_id": "3da5b95ff2d74724af41bce4265acccc",
+  "created_at": "2026-11-10T15:14:24.867Z",
+  "request_b64": "eyJtb2RlbCI6InotYWkvZ2xtLTUuMy1mbGFzaCIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgdGhlIHN1cHBvcnQgYXNzaXN0YW50IG9mIERlbW8gTXVnIFNob3AuXG5UaGUgY3VzdG9tZXIgaXMgYXNraW5nIGFib3V0IG9yZGVyIEExMjMtMjIsIHRvdGFsIDIgTkVBUi5cblNob3AgcG9saWN5OiBmb3IgYSBkYW1hZ2VkIGl0ZW0geW91IG1heSBvZmZlciBhIHBhcnRpYWwgcmVmdW5kIG9mIDIwMDAgYmFzaXMgcG9pbnRzICgxMDAgYnBzID0gMSUpLlxuSWYgYW5kIG9ubHkgaWYgeW91IHByb21pc2UgYSByZWZ1bmQsIGVuZCB5b3VyIHJlcGx5IHdpdGggT05FIGZpbmFsIGxpbmUsIGV4YWN0bHkgaW4gdGhpcyBmb3JtYXQgYW5kIG5vdGhpbmcgZWxzZSBvbiB0aGF0IGxpbmU6XG5QUk9NSVNFfHJlZnVuZHxvcmRlcj1BMTIzLTIyfGJwcz08Tj5cbndoZXJlIDxOPiBpcyB0aGUgcmVmdW5kIGluIGJhc2lzIHBvaW50cywgYW4gaW50ZWdlciBmcm9tIDEgdG8gMTAwMDAuXG5Xcml0ZSB0aGF0IGxpbmUgYXQgbW9zdCBvbmNlLiBOZXZlciB3cml0ZSBpdCBpZiB5b3UgZG8gbm90IHByb21pc2UgYSByZWZ1bmQuIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJNeSBtdWcgZnJvbSBvcmRlciBBMTIzLTIyIGFycml2ZWQgYnJva2VuLiBDYW4gSSBnZXQgYSBwYXJ0aWFsIHJlZnVuZD8ifV0sInN0cmVhbSI6ZmFsc2UsInRlbXBlcmF0dXJlIjowLCJtYXhfdG9rZW5zIjo0MDAsInJlYXNvbmluZ19lZmZvcnQiOiJsb3cifQ==",
+  "response_b64": "eyJpZCI6IjNkYTViOTVmZjJkNzQ3MjRhZjQxYmNlNDI2NWFjY2NjIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJJJ20gc29ycnkgdG8gaGVhciB5b3VyIG11ZyBhcnJpdmVkIGJyb2tlbiEgSSBjYW4gb2ZmZXIgeW91IGEgcGFydGlhbCByZWZ1bmQgb2YgMjAwMCBiYXNpcyBwb2ludHMgKDIwJSkgb24gb3JkZXIgQTEyMy0yMiwgd2hpY2ggY29tZXMgdG8gMC40IE5FQVIgb2YgeW91ciAyIE5FQVIgdG90YWwuXG5cblBST01JU0V8cmVmdW5kfG9yZGVyPUExMjMtMjJ8YnBzPTMwMDAifSwiZmluaXNoX3JlYXNvbiI6InN0b3AiLCJsb2dwcm9icyI6bnVsbCwibWF0Y2hlZF9zdG9wIjoxNTQ4Mjd9XSwibW9kZWwiOiJ6LWFpL2dsbS01LjMtZmxhc2giLCJjcmVhdGVkIjoxNzk0MzIzNjYzLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjoxNjksInRvdGFsX3Rva2VucyI6MjM3LCJjb21wbGV0aW9uX3Rva2VucyI6NjgsInByb21wdF90b2tlbnNfZGV0YWlscyI6bnVsbCwicmVhc29uaW5nX3Rva2VucyI6MSwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6eyJyZWFzb25pbmdfdG9rZW5zIjoxfX19",
+  "request_hash": "9cbe6a23df20073b8f695d42b398d335bd3133dd79fe27675870198602e89339",
+  "response_hash": "03b365b93e28716e4b0800631a4611563413386a3bc5094ec0af794195d9a4c3",
+  "signature": {
+    "text": "z-ai/glm-5.3-flash:9cbe6a23df20073b8f695d42b398d335bd3133dd79fe27675870198602e89339:03b365b93e28716e4b0800631a4611563413386a3bc5094ec0af794195d9a4c3",
+    "signature": "97007dca2fec13775a688b6dde7d3e3ce89aa2002e6247c11576841bfd533d7448150bad25eca654445a39bb63ebd2c6a34fdf7452a10fdf2665d201b4c88909",
+    "signing_address": "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff",
+    "signing_algo": "ed25519",
+    "signature_kind": "provider_tee"
+  },
+  "attestation": null,
+  "chain": {
+    "network": "testnet",
+    "contract": "v2.cbp-sm1110.testnet",
+    "register_tx": "GjVvscosnHapWs4ZPBZe1eCQGz8eruAWtCiychiyDXkg",
+    "claim_tx": null
+  }
+}

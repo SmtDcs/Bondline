@@ -41,5 +41,5 @@ for (const v of verified) {
   const pk = v.signer.signingAddress.replace(/^0x/, '').toLowerCase();
   console.log(`ATTESTED ${pk} tcb=${v.tcbStatus} gpu=${v.gpuEvidence} record=${file} record_sha256=${sha}`);
   const args = JSON.stringify({ public_key_hex: pk, kind: 'provider_tee', model_id: model, attestation_sha256: sha, expires_at_ms: String(expires) });
-  console.log(addSignerCommand({ contractId, args: JSON.parse(args), deposit: process.env.ADD_SIGNER_DEPOSIT || undefined }));
+  console.log(addSignerCommand({ contractId, args: JSON.parse(args) }));
 }

@@ -1,7 +1,7 @@
 // The near-cli add_signer command that `npm run attest` prints.
 // v2 source (contract-v2/src/lib.rs) requires exactly 1 yoctoNEAR on add_signer (full-access key only).
-// The v2 build that is live on testnet today predates that check and rejects any deposit, so the
-// deposit can be overridden with ADD_SIGNER_DEPOSIT (for example '0 NEAR') until the market is redeployed.
+// The market was redeployed with that check (2026-11-10), so the ADD_SIGNER_DEPOSIT override for the old
+// build is gone: the command always attaches 1 yoctoNEAR.
 export const DEFAULT_ADD_SIGNER_DEPOSIT = '1 yoctoNEAR';
 
 export function addSignerCommand({ contractId, args, deposit = DEFAULT_ADD_SIGNER_DEPOSIT }) {

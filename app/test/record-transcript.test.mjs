@@ -134,3 +134,13 @@ test('merchantBeforeClaims keeps the token of a v2 token bond view', async () =>
   const rolled = roll({ token: 'tusdc.testnet', bond: '94000000', reserved: '0', paid_out: '6000000' }, [{ payout: '6000000', liability: '6000000' }]);
   assert.deepEqual(rolled, { token: 'tusdc.testnet', bond: '100000000', reserved: '6000000', paid_out: '0' });
 });
+
+test('a v2 recording needs the merchant (the live run found get_order was called with merchant null)', async () => {
+  const { merchantForRecording } = await import('../lib/transcript.mjs');
+  assert.equal(merchantForRecording(2, { MERCHANT_ID: ' cbp-shop-sm1110.testnet ' }), 'cbp-shop-sm1110.testnet');
+  assert.throws(() => merchantForRecording(2, {}), /needs MERCHANT_ID/);
+  assert.throws(() => merchantForRecording(2, { MERCHANT_ID: '' }), /needs MERCHANT_ID/);
+  assert.equal(merchantForRecording(1, {}), null, 'v1 get_order has no merchant argument');
+  const { orderArgs } = await import('../lib/contract-api.mjs');
+  assert.deepEqual(orderArgs(2, merchantForRecording(2, { MERCHANT_ID: 'shop.testnet' }), 'A123-23'), { merchant: 'shop.testnet', order_id: 'A123-23' });
+});

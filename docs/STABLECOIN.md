@@ -1,6 +1,6 @@
 # Contract v2: stablecoin (NEP-141) support - design
 
-Status: **implemented in `contract-v2/` and the client, and deployed on testnet** as `v2.cbp-sm1110.testnet` with the mock token `sm1110-tusdc.testnet` (2026-11-10; section 19). L1 is done. **L2-L14 (the live flows) are not done yet**; section 19 says which step is blocked and why. Every number marked *tune* is still a first guess that the live run must confirm.
+Status: **implemented in `contract-v2/` and the client, deployed on testnet** as `v2.cbp-sm1110.testnet` with the mock token `sm1110-tusdc.testnet` (2026-11-10; section 19), redeployed in place with the 1-yocto fix (section 21), and **the live flows L1-L14 were run and recorded on 2026-11-10** (section 21; L4(b) was not run). The gas constants were measured and kept (section 7 and 21).
 
 Written by Claude Sonnet 5.5 (design). The build is meant for DeepSeek V4.1 Flash, with Claude Sonnet 5.5 reviewing and fixing, and Claude Opus 5.5 doing the final review and the testnet deploys as operator. `docs/plan/` is the locked original plan and is not edited; this file is the interface spec for v2, and the deviations from `docs/plan/INTERFACES.md` are listed in section 13 (to be copied into `docs/CHANGE-REQUESTS.md` as CR-4 when the build starts).
 
@@ -141,7 +141,7 @@ Accepted risk, to be written in the README: the allow-list is trusted. A token t
 
 Every outgoing transfer, token or NEAR, is a promise with a callback, and money records change **only in the callback**, once the result is known.
 
-Gas constants (*tune* with the live run, then record the measured values here): `GAS_FT_TRANSFER = 20 Tgas`, `GAS_CALLBACK = 15 Tgas`. `claim` and `withdraw_bond` panic with `ERR_NOT_ENOUGH_GAS` before touching state when `prepaid_gas - used_gas < GAS_FT_TRANSFER + GAS_CALLBACK + 10 Tgas`. The client keeps 100 Tgas.
+Gas constants: `GAS_FT_TRANSFER = 20 Tgas`, `GAS_CALLBACK = 15 Tgas`. **Measured live (section 21): a paid tUSDC claim burns 2.7 Tgas in `claim`, 1.8 Tgas in `ft_transfer`, 2.2 Tgas in `on_claim_paid` (failed payout 2.7 / 1.5 / 1.8); `withdraw_bond` 2.5 / 1.8 / 1.6. Kept as they are: they are budgets, unused gas is refunded.** `claim` and `withdraw_bond` panic with `ERR_NOT_ENOUGH_GAS` before touching state when `prepaid_gas - used_gas < GAS_FT_TRANSFER + GAS_CALLBACK + 10 Tgas`. The client keeps 100 Tgas.
 
 Token transfer: `ft_transfer(receiver_id, amount, memo = None)` on the token contract with **exactly 1 yoctoNEAR** attached, `.then(callback)`. NEAR transfer: `Promise::transfer(...)`, `.then(callback)`. Both always have the `then()`.
 
@@ -514,6 +514,8 @@ slot wrapper). Not deployed at the time of this review (deployed afterwards, see
 
 ## 19. Deployment and live-run status (2026-11-10, after the operator deploy)
 
+*Historical: this is the state before the live run. The "not run" lines in this section were true then; section 21 has the live-run results, and the code hash below is the first build, replaced by the redeploy in section 21.*
+
 Source of each line: **[chain]** = read by RPC in the session that wrote this section; **[operator]** = the
 operator's deploy report, not repeated by me.
 
@@ -599,8 +601,8 @@ shopper function-call keys still work. Unit tests: `register_order_needs_exactly
 changes; 1 works) and `register_receipt_and_claim_stay_callable_with_a_zero_deposit`. The first four
 fail on the old code. The 1 yoctoNEAR stays in the contract.
 
-This changes the deployed interface, so it **needs a redeploy**: the v2 build live on testnet (code hash
-`399c5af6...`) does not have the check. Until then `add_signer` and `register_order` must be called with
+This changes the deployed interface, so it **needed a redeploy** (done, section 21): the first v2 build (code hash
+`399c5af6...`) did not have the check. Until then `add_signer` and `register_order` must be called with
 0 deposit on the live contract; `npm run attest` prints `1 yoctoNEAR` by default (`ADD_SIGNER_DEPOSIT='0 NEAR'`
 for the live build) and `app/scripts/demo-setup.sh` attaches `$REGISTER_ORDER_DEPOSIT` (default
 `1 yoctoNEAR`, `'0 NEAR'` for the live build) on the v2 path.
@@ -611,3 +613,47 @@ returns one `FullAccess` key each for `v2.cbp-sm1110.testnet` and the tUSDC mock
 still redeploy the market or mint tUSDC. README Trust boundaries now says so. The owner actions of the
 market do not need that key (the owner is the contract itself), so deleting it after the live runs is
 possible; it has not been deleted.
+
+## 21. Redeploy and the live run L1-L14 (2026-11-10, Claude Sonnet 5.5; redeploy by the operator, Claude Opus 5.5)
+
+**Redeploy.** The operator redeployed `v2.cbp-sm1110.testnet` in place with the F1 fix: tx
+`CbDQ6rL6GzTchuEE9GKqdGEHi8eUyxFKZkoJwJ51h3tC`, wasm `contract-v2/res/bot_promises_v2.wasm`, 299151 bytes, sha256
+`095bb43efde677c2fe531ddcdc4fb3554b9c1c35e897a8b6f23ae5908c9b9721`; state kept (api 2, TEE signer registered). The L1 script compared the account's
+on-chain `code_hash` with the sha256 of that file: equal. `ADD_SIGNER_DEPOSIT` / `REGISTER_ORDER_DEPOSIT` (the 0-deposit overrides for the first
+build) were removed from `npm run attest`, `demo-setup.sh` and the plan; every `register_order` now attaches exactly 1 yoctoNEAR.
+
+**How it was run.** Every transaction was signed with near-api-js (no near-cli) using the keys of `.env`: `app/scripts/live-v2.mjs` (steps L1 ... L13),
+`app/scripts/demo-setup-v2.mjs` (the port of the V2 setup branches of `demo-setup.sh`; run for real for tUSDC `RUN=21` and NEAR `ASSET=near RUN=22`),
+and the headless app (`npm run dev`) for chat -> NEAR AI reply -> signed receipt (relayer key) -> claim (alice's claim-only key). Every transaction,
+failures included, is in `fixtures/runs/v2-live-run.json` (81 txs, 27 failures, 128 checks computed by the script, all pass; per-receipt gas and logs
+are in each record); the same table with explorer hashes is in `docs/build-log.md`. `npm run verify:live-run` re-reads all 81 from the RPC and compares:
+81/81 match.
+
+| Run | Result (details and tx hashes: `docs/build-log.md`) |
+| --- | --- |
+| L1 | state matches; the 1-yocto check is live (`add_signer`, `register_order`, `storage_withdraw` with 0 deposit: `ERR_ONE_YOCTO`; `add_signer` with 1 yocto works) |
+| L2 | storage deposit 0.5 NEAR, 100 tUSDC bond by `ft_transfer_call`, `bond_added` with the token, balances moved 1:1 |
+| L3 | empty and unknown msg: refunded in full (`REFUND:BAD_MSG`), `get_bonds` unchanged |
+| L4 | (a) done: direct `ft_on_transfer` by bob refused (`REFUND:TOKEN_NOT_ALLOWED`). **(b) not run**: no second token (nothing may be deployed this round); unit test only |
+| L5 | first token bond without a storage balance refunded in full (`REFUND:NO_STORAGE`) |
+| L6 | real bot reply `bps=2000`, receipt, claim: `4000000` tUSDC to the registered buyer; bond, reserved, paid_out moved by exactly that; one `promise_claimed` with the token |
+| L7 | unregistered receiver: tx ok with `ok:false` / `ERR_PAYOUT_FAILED`, order `open`, bond unchanged, no `promise_claimed`, `PAYOUT_FAILED:` log; after bob registered, claim paid `4000000`; third claim `ERR_ALREADY_CLAIMED` |
+| L8 | naive bot `bps=10000` -> payout `6000000` (30% cap of 20 tUSDC) |
+| L9 | `withdraw_bond` of the free token part paid; above the free bond refused. **Also done (L9b, beyond the list):** a merchant unregistered from the token: withdraw callback `false`, bond restored, `WITHDRAW_FAILED:` log |
+| L10 | 2 minute TTL: early `release_expired` refused, relayer refused a chat after expiry, claim `ERR_ORDER_EXPIRED`, a third account released it (reserved fell 6 tUSDC, `order_expired`), second release `ERR_ORDER_NOT_OPEN`, the previously impossible withdraw now works |
+| L11 | five orders each charged the shop exactly 246 bytes x 10^19 yocto; shop `available` fell by exactly the added bytes x 10^19; the market account's `amount` rose by 5 yocto only. A receipt cost 7.58e21 yocto (758 bytes). Order without storage balance: `ERR_STORAGE_BALANCE` (L12, alice) |
+| L12 | alice a second merchant; same order id `N123-21` under two merchants; same merchant twice `ERR_ORDER_EXISTS`; wrong merchant `ERR_NO_ORDER` / `ERR_NOT_BUYER` |
+| L13 | the NEAR demo on v2: 0.4 NEAR, cap 0.6 NEAR, `ERR_NO_RECEIPT_FOR_BYTES`, `ERR_BAD_SIGNATURE`, `ERR_ALREADY_CLAIMED` |
+| L14 | `npm run verify -- fixtures/live/a123-v2.json --merchant cbp-shop-sm1110.testnet` and the other three v2 bundles `VERIFIED`, tampered copy `NOT VERIFIED`; `fixtures/replay/transcript-v2.json` (tUSDC) and `transcript-v2-near.json`; `npm run verify:fixtures` -> `ALL VERIFIED (7 real bundles + 3 tampered (correctly rejected) + 2 SIMULATED ...)` |
+
+**Measured behaviour that the design text did not spell out.** After a claim the order is `claimed` and the status check wins: a tampered-bytes claim
+gives `ERR_ALREADY_CLAIMED` and registering an edited reply gives `ERR_ORDER_NOT_OPEN`, not the signature errors (those show on an open order, L6b, L13).
+A shop that withdraws almost its whole bond cannot register the next order (`ERR_INSUFFICIENT_FREE_BOND`), as designed.
+
+**Gas.** See section 7. The constants were not changed, so the contract source and the deployed wasm are unchanged by this round.
+
+**Found by the live run (client, fixed with a test):** `record-transcript.mjs` called v2 `get_order` with `merchant: null`; it now needs `MERCHANT_ID`.
+New option `RECORD_SUFFIX` records a second v2 run beside the first.
+
+**Not done:** L4(b); `ERR_LIABILITY_ZERO` live; a `claim-failed` beat inside the replayed transcript; a real-browser check; measuring a real USDC token's gas.
+The market and the token still hold a full-access key each (F2 unchanged).

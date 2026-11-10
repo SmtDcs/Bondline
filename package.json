@@ -14,6 +14,7 @@
     "spike:s1": "node --env-file=.env app/scripts/spike-s1-live-signature.mjs",
     "verify": "node app/verify.mjs",
     "verify:fixtures": "node app/scripts/verify-fixtures.mjs",
+    "verify:live-run": "node app/scripts/verify-live-run.mjs",
     "dev": "node --env-file=.env app/server.mjs",
     "demo:replay": "MODE=replay node app/server.mjs",
     "demo:replay:v2": "MODE=replay REPLAY_FILE=fixtures/replay/transcript-v2.json node app/server.mjs"

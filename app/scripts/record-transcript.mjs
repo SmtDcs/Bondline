@@ -26,8 +26,9 @@ import { sha256Hex } from '../lib/nearai.mjs';
 import { detectApi, orderArgs, receiptArgs, previewClaimArgs } from '../lib/contract-api.mjs';
 import { ftMetadata } from '../lib/token.mjs';
 import {
-  newestBundle, tamperedCopy, chatTimePreview, merchantBeforeClaims, readJsonLines, lastLine, lastUserMessage, outputPaths,
+  newestBundle, tamperedCopy, chatTimePreview, merchantBeforeClaims, readJsonLines, lastLine, lastUserMessage, outputPaths, merchantForRecording,
 } from '../lib/transcript.mjs';
+import { readEnvFile } from '../lib/live-tx.mjs';
 
 const ORDER_ID_RE = /^[A-Za-z0-9-]{1,32}$/;
 const RPC_TRIES = 5;
@@ -39,7 +40,8 @@ const LIVE_DIR = path.join(ROOT, 'fixtures', 'live');
 const REPLAY_DIR = path.join(ROOT, 'fixtures', 'replay');
 const CLAIMS_LOG = path.join(ROOT, 'data', 'claims.log');
 const MERCHANT_LOG = path.join(ROOT, 'data', 'merchant.log');
-const RPC_URL = process.env.NEAR_RPC_URL ?? 'https://test.rpc.fastnear.com';
+const ENV = readEnvFile(); // .env values (the shell wins); only NEAR_RPC_URL and MERCHANT_ID are read here
+const RPC_URL = ENV.NEAR_RPC_URL ?? 'https://test.rpc.fastnear.com';
 
 const [orderA, orderB] = process.argv.slice(2);
 if (!orderA || !orderB || !ORDER_ID_RE.test(orderA) || !ORDER_ID_RE.test(orderB)) {
@@ -75,10 +77,13 @@ const provider = makeProvider(RPC_URL);
 // v2 keys orders and receipts by (merchant, id); v1 does not. Detect once, then use the matching args.
 const api = await detectApi(provider, contractId);
 console.log(`contract api ${api}`);
-const out = outputPaths(api); // v2 never overwrites the recorded v1 fixtures
+const merchantId = merchantForRecording(api, ENV);
+const suffix = process.env.RECORD_SUFFIX ?? '';
+if (suffix && !/^[a-z0-9]{1,16}$/.test(suffix)) throw new Error('RECORD_SUFFIX must be 1-16 lowercase letters or digits');
+const out = outputPaths(api, suffix); // v2 never overwrites the recorded v1 fixtures
 
 async function recordViews(orderId, bundle) {
-  const order = await viewWithRetry(provider, contractId, 'get_order', orderArgs(api, null, orderId));
+  const order = await viewWithRetry(provider, contractId, 'get_order', orderArgs(api, merchantId, orderId));
   if (!order) throw new Error(`get_order(${orderId}) is null`);
   const receipt = await viewWithRetry(provider, contractId, 'get_receipt', receiptArgs(api, order.merchant, bundle.response_hash));
   const previewLive = await viewWithRetry(provider, contractId, 'preview_claim', previewClaimArgs(api, order.merchant, orderId, bundle.response_b64));

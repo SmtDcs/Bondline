@@ -103,12 +103,26 @@ export function lastUserMessage(bundle) {
  * fixtures/replay/transcript.json) and must never be overwritten by a v2 recording, so a v2 contract
  * gets its own file names.
  */
-export function outputPaths(api) {
-  const v = api === 2 ? '-v2' : '';
+export function outputPaths(api, suffix = '') {
+  // `suffix` (v2 only, RECORD_SUFFIX=near) records a second v2 run next to the first, e.g. the NEAR regression
+  // run beside the tUSDC run: a123-v2-near.json, transcript-v2-near.json.
+  const v = api === 2 ? `-v2${suffix ? `-${suffix}` : ''}` : '';
   return {
     bundleA: `fixtures/live/a123${v}.json`,
     bundleB: `fixtures/live/a124${v}.json`,
     tampered: `fixtures/live/a123${v}-tampered.json`,
     transcript: `fixtures/replay/transcript${v}.json`,
   };
+}
+
+/**
+ * v2 keys orders and receipts by (merchant, id) and the bundle does not name the merchant, so a v2 recording
+ * needs MERCHANT_ID (the live run found that the recorder called get_order with merchant null and failed).
+ * v1 needs none.
+ */
+export function merchantForRecording(api, env) {
+  if (api !== 2) return null;
+  const merchant = String(env?.MERCHANT_ID ?? '').trim();
+  if (!merchant) throw new Error('recording a v2 contract needs MERCHANT_ID (the shop account) in .env or the shell');
+  return merchant;
 }
