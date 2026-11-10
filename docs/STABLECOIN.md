@@ -465,3 +465,47 @@ Docs: README, `docs/runbook.md`, `docs/demo-script.md`, `docs/CHANGE-REQUESTS.md
 `docs/SUBMISSION.md` and `docs/build-log.md` describe v2 as **v-next, not deployed yet**. The v1
 contract, its deployment and the recorded v1 replay are unchanged and remain the submission as it
 stands. `docs/plan/` was not edited.
+
+## 18. Review round (2026-11-10, Claude Sonnet 5.5)
+
+Strict review of everything since the design commit, against this file. What it found and changed:
+
+1. **Contract, money: a successful transfer that returned data was read as a failure.**
+   `promise_succeeded` used `env::promise_result_checked(0, 0)`, which returns `Err(TooLong)` for any
+   non-empty result. `on_claim_paid` and `on_withdraw_resolved` then restored the books (order `open`,
+   bond re-credited) **after the money had moved**: the shopper could claim again, or the merchant
+   withdraw again. The mock tUSDC returns nothing, so the tests and the mock never showed it; a token or a
+   wrapper that returns a value would. Fixed: only `PromiseError::Failed` is a failure. Tests:
+   `claim_callback_treats_a_non_empty_successful_result_as_paid`,
+   `withdraw_callback_treats_a_non_empty_successful_result_as_paid` (both fail on the old code).
+2. **Page: the claim toast showed `paid 0.000 NEAR` for a tUSDC claim.** `claimToastText` was NEAR-only.
+   It now takes the order's token. The NEAR text is unchanged. Test in `app/test/review-fixes.test.mjs`.
+3. **Relayer: a failed NEAR payout told the shopper to register on a token** whenever `TOKEN_ID` was set in
+   the env. The hint now follows the token named by the callback (`null` = NEAR gets a NEAR hint).
+4. **Relayer: a chat on a `paying` order answered `ERR_ALREADY_CLAIMED`.** It now answers
+   `ERR_CLAIM_IN_PROGRESS` (section 8 names that code).
+5. **Server: a failing version check at startup was logged and then read as "no version", so the page got
+   no `contract_api` and would have sent v1 arguments to a v2 contract.** The startup logic moved to
+   `app/lib/live-config.mjs` and a non-`MethodNotFound` error now aborts the start (section 2 says so).
+   Test: `startup does not read a network error as v1` (the old inline code in `server.mjs` could not be
+   tested, so this test only runs against the new module).
+6. **Runbook:** the `create-account` command had no key option (interactive) and took its 0.2 NEAR from
+   the v1 contract account; it now tops that account up from the shop first and generates the key.
+
+Checked and found fine (no change): receipt keys per merchant, the `storage_usage` flush before each
+measurement, `ft_on_transfer` never panicking and refunding on every unexpected input, no event on a
+failed transfer, the claim/withdraw state before the callback, the order of `register_order` checks, and
+the NEAR path (same names, `merchant` argument added only for v2 through `contract-api.mjs`).
+
+Known and left as they are (documented limits, not bugs): a callback that ran out of gas leaves an order
+`paying` (no owner rescue, by design); `storage_withdraw` sends NEAR without a callback, so an account
+that no longer exists loses that amount; `register_merchant` now needs more than 1 NEAR.
+
+Numbers after the review: `contract-v2` `cargo test` -> `90 passed`; `contract` -> `16 passed`;
+`node --test app/test/*.test.mjs` -> 153 tests, 149 passed, 4 failed in the review sandbox (the four
+`demo-setup.test.mjs` tests spawn `bash`, which the sandbox refused with `spawnSync bash EPERM`; the script
+was checked by hand with `bash -n` and a `DRY_RUN=1` run); `verify:fixtures` -> `ALL VERIFIED (3 real
+bundles + 1 tampered (correctly rejected) + 2 SIMULATED ...)`. New wasm: `contract-v2/res/bot_promises_v2.wasm`,
+299448 bytes, sha256 `399c5af66e90a5800658f86a25c29fa76c62018f7d77d40b47e139e71f9b08bd`
+(`cargo near build non-reproducible-wasm --no-abi`, run directly because `npm run` printed nothing under the
+slot wrapper). Still **not deployed**; no live run was made.

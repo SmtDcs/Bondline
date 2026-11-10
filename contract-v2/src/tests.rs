@@ -1378,3 +1378,34 @@ fn preview_claim_never_panics() {
     let bytes = Base64VecU8(b"totally different".to_vec());
     assert_eq!(c.preview_claim(acc("shop.testnet"), "A123".into(), bytes).error.as_deref(), Some("ERR_NO_RECEIPT_FOR_BYTES"));
 }
+
+// Review fix: a successful transfer that returns data (some tokens, or a wrapped call) is still a
+// successful transfer. `promise_result_checked(0, 0)` read any non-empty value as a failure, which
+// put the books back after the money had moved.
+#[test]
+fn claim_callback_treats_a_non_empty_successful_result_as_paid() {
+    let mut c = token_order_setup();
+    let x = v();
+    ctx("alice.testnet", 0);
+    let bytes = b64(&x["honest"], "response_b64");
+    let pre = c.preview_claim(acc("shop.testnet"), "A123".into(), bytes.clone());
+    drop(c.claim(acc("shop.testnet"), "A123".into(), bytes));
+    ctx_result(PromiseResult::Successful(b"\"ok\"".to_vec()));
+    let r = c.on_claim_paid(acc("shop.testnet"), "A123".into(), pre.payout, pre.token_bps, pre.paid_bps, pre.response_hash);
+    assert!(r.ok, "{:?}", r.error);
+    assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "claimed");
+    let b = c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap();
+    assert_eq!(b.paid_out, U128(4_000_000));
+    assert_eq!(b.bond, U128(16_000_000));
+}
+
+#[test]
+fn withdraw_callback_treats_a_non_empty_successful_result_as_paid() {
+    let mut c = token_order_setup();
+    ctx("shop.testnet", 0);
+    drop(c.withdraw_bond(U128(2_000_000), Some(acc(TUSDC))));
+    ctx_result(PromiseResult::Successful(b"\"ok\"".to_vec()));
+    assert!(c.on_withdraw_resolved(acc("shop.testnet"), Some(acc(TUSDC)), U128(2_000_000)));
+    assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(18_000_000));
+    assert_eq!(events().len(), 1);
+}

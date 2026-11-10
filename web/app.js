@@ -285,8 +285,8 @@ export async function refreshBondMeter() {
 }
 
 /** Toast text for a claim: `paid 0.400 NEAR` (T16 acceptance). */
-export function claimToastText(payout) {
-  return `paid ${yoctoToNear(payout)} NEAR`;
+export function claimToastText(payout, tokenId = null, tokens = CFG?.tokens) {
+  return `paid ${formatAsset(payout, tokenId, tokens)}`;
 }
 
 /** One merchant-log row from the register-edited response; red when it is an error. */
@@ -427,7 +427,7 @@ async function claim(row, btn) {
       showToast(text, null, 'toast error');
       return;
     }
-    showToast(claimToastText(data.result.payout), data.explorer);
+    showToast(claimToastText(data.result.payout, row.tokenId), data.explorer);
   } catch (err) {
     failed = true;
     showToast(err.message, null, 'toast error');

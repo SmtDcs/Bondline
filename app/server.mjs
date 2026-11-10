@@ -22,44 +22,13 @@ if (MODE === 'replay') {
   handlers = r.handlers; cfgPublic = r.publicConfig;
 } else {
   const cfg = loadConfig();
-  // v2 detection is one get_config at startup. MethodNotFound means v1 (raised errors are logged,
-  // never read as v1); the page then uses the v1 argument shapes and hides token orders.
-  const { makeProvider, view } = await import('./lib/near.mjs');
-  const { detectApi, orderArgs } = await import('./lib/contract-api.mjs');
-  const { loadTokenConfig } = await import('./lib/token.mjs');
+  // v2 detection is one get_config at startup (app/lib/live-config.mjs). MethodNotFound means v1; any
+  // other error aborts the start, it is never read as v1.
+  const { makeProvider } = await import('./lib/near.mjs');
+  const { buildLiveConfig } = await import('./lib/live-config.mjs');
   const provider = makeProvider(cfg.rpcUrl);
-  let contractApi = null;
-  try { contractApi = await detectApi(provider, cfg.contractId); } catch (e) { console.error(`contract version detection failed: ${e.message}`); }
-  let tokens = [];
-  if (contractApi === 2) {
-    try {
-      const config = await view(provider, cfg.contractId, 'get_config', {});
-      const loaded = await loadTokenConfig(provider, cfg.contractId, config.allowed_tokens ?? []);
-      tokens = loaded.tokens;
-      if (loaded.unregistered.length) {
-        console.error(`the market is not registered on ${loaded.unregistered.join(', ')}: those token orders are hidden`);
-      }
-    } catch (e) {
-      console.error(`token metadata failed: ${e.message}`);
-    }
-    const kept = [];
-    for (const order of cfg.orders) {
-      try {
-        const chain = await view(provider, cfg.contractId, 'get_order', orderArgs(contractApi, cfg.merchantId, order.order_id));
-        if (chain) {
-          const token = chain.token ?? null;
-          if (token && !tokens.some(t => t.id === token)) continue; // market not registered: hide it
-          order.token = token;
-          order.amount = chain.amount ?? null;
-          order.expires_at_ms = chain.expires_at_ms ?? null;
-        }
-      } catch { /* the config is still usable without the per-order metadata */ }
-      kept.push(order);
-    }
-    cfg.orders = kept;
-  }
-  cfg.contractApi = contractApi;
-  cfg.tokens = tokens;
+  await buildLiveConfig(cfg, provider);
+  const contractApi = cfg.contractApi;
   handlers = makeRelayer(cfg, { provider, ...(contractApi ? { api: contractApi } : {}) });
   cfgPublic = publicConfig(cfg);
 }

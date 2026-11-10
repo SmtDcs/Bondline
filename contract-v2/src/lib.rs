@@ -831,9 +831,10 @@ fn require_gas() {
     require!(left >= GAS_GUARD * 1_000_000_000_000, "ERR_NOT_ENOUGH_GAS");
 }
 
-/// Result of the first promise this method depends on.
+/// Did the first promise this method depends on succeed? Only `Failed` counts as a failure: a
+/// successful call that returns data (`TooLong` for a zero-length bound) has still moved the money.
 fn promise_succeeded() -> bool {
-    env::promise_result_checked(0, 0).is_ok()
+    !matches!(env::promise_result_checked(0, 0), Err(near_sdk::PromiseError::Failed))
 }
 
 #[cfg(test)]

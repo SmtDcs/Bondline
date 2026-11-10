@@ -37,8 +37,8 @@ Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys, no Rust for 
    - Offline: `npm run verify -- fixtures/live/a123.json --offline` ends in `VERIFIED` (off-chain checks only; it also requires the signing key to be in an attestation record).
 4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the recorded badges and the Claim button show up: the plain URL http://127.0.0.1:8787 runs the same replay but asks testnet for the BINDING check, and both recorded orders are already claimed on chain, so it shows `ERR_ALREADY_CLAIMED` (the honest live state) instead of the claimable badges. `?offline=1` touches nothing but localhost.
 5. (Rust 1.95 installed) `npm run test:contract` - see `test result: ok. 16 passed; 0 failed`.
-6. `npm run test:js` - see `# fail 0` (148 tests).
-7. (v2, not deployed) `npm run test:contract:v2` - see `test result: ok. 88 passed`.
+6. `npm run test:js` - see `# fail 0` (153 tests). The review round of 2026-11-10 saw 149 pass and 4 fail: the 4 `demo-setup` tests spawn `bash`, which that sandbox refused (`spawnSync bash EPERM`); `bash -n` and the `DRY_RUN=1` run were done by hand and were fine. Run them on a normal shell.
+7. (v2, not deployed) `npm run test:contract:v2` - see `test result: ok. 90 passed`.
 
 ## Verify each claim
 | Claim | Do | See |
@@ -142,10 +142,10 @@ The contract on testnet (`cbp-sm1110.testnet`, wasm sha256 `c4d88ead…`) is fro
 and tested locally, but **it is not deployed**: there is no `v2.cbp-sm1110.testnet` account, no v2
 wasm on testnet and no live transaction. Nothing in this section describes a running service.
 
-- Build: `npm run build:contract:v2` -> `contract-v2/res/bot_promises_v2.wasm` (301572 bytes,
-  sha256 `7fda513ae25f2639c12c5a4a7bdc6b8fc2127d29ac09dd4f2b7f4f43490a42e2`).
-- Tests: `npm run test:contract:v2` -> `88 passed`; the v1 suite is still `16 passed`; `npm run
-  test:js` -> `148 passed`; `npm run verify:fixtures` is unchanged.
+- Build: `npm run build:contract:v2` -> `contract-v2/res/bot_promises_v2.wasm` (299448 bytes,
+  sha256 `399c5af66e90a5800658f86a25c29fa76c62018f7d77d40b47e139e71f9b08bd`, rebuilt after the review fixes).
+- Tests: `npm run test:contract:v2` -> `90 passed`; the v1 suite is still `16 passed`; `npm run
+  test:js` -> 153 tests (149 passed in the review sandbox, see step 6 above); `npm run verify:fixtures` is unchanged.
 - NEP-141 bonds: a merchant adds a bond in an allowed token with `ft_transfer_call` and
   `{"add_bond":{}}`; the market credits `sender_id` only. The design text is the spec
   (`docs/STABLECOIN.md` sections 4-5). NEAR stays `token = null`.
@@ -247,8 +247,8 @@ The signature-check pattern follows tee-receipts by tmdry4530 (MIT, https://gith
 The plan and `docs/plan/skeleton/` (the contract and the `app/lib` / `app/scripts` helpers) were written with Claude (Anthropic) during planning on 2026-11-08/09. The scaffold, live spikes, fixtures, `web/` page, relayer/server changes, scripts, docs and day-review fixes were built by DeepSeek V4.1 Flash (`deepseek/deepseek-v4.1-flash`, max effort) in Command Code agent sessions orchestrated by Conductor. Claude Sonnet 5.5 reviewed each day (read-only) and does the last fix; Claude Opus 5.5 does the final review/audit and acted as operator (testnet accounts, funding, contract deploy, bond top-ups) with approval while Samet was away. All code was reviewed and run under `node --test`, `cargo test` and HTTP calls to the server endpoints; the web page was **not** opened in a real browser by the AI (it was driven through a fake `document` in node tests), so its click-through in `?offline=1` and live mode is still an unticked human check in `docs/runbook.md` and the committed `docs/screenshots/*-render.png` are drawn renders, not browser captures (they stay in the repository, labelled as renders; real browser screenshots will be added next to them). The humans on the project are Samet. The demo bot itself is NEAR AI Cloud `z-ai/glm-5.3-flash`.
 
 Round 2026-11-10 (stablecoin v2): DeepSeek V4.1 Flash built `contract-v2/`, the client helpers, the
-page changes and the tests; Claude Sonnet 5.5 wrote the design (`docs/STABLECOIN.md`), reviewed and
-fixed; Claude Opus 5.5 does the final review and the operator deploys. This round ran locally only:
+page changes and the tests; Claude Sonnet 5.5 wrote the design (`docs/STABLECOIN.md`), then reviewed and
+fixed the build (section 18 there lists what it changed); Claude Opus 5.5 does the final review and the operator deploys. This round ran locally only:
 no v2 account, deploy or live testnet call was made, and no browser was opened.
 
 ## Libraries

@@ -122,6 +122,7 @@ export function makeRelayer(cfg, deps = {}) {
     if (order.status === 'expired' || (expiresAt != null && Date.now() >= expiresAt)) {
       throw Object.assign(new Error('ERR_ORDER_EXPIRED'), { status: 400, detail: `order ${order_id} expired, a new reply cannot be registered` });
     }
+    if (order.status === 'paying') throw Object.assign(new Error('ERR_CLAIM_IN_PROGRESS'), { status: 400, detail: `order ${order_id} has a payout in flight` });
     if (order.status !== 'open') throw Object.assign(new Error('ERR_ALREADY_CLAIMED'), { status: 400, detail: `order ${order_id} is ${order.status}` });
     const meta = cfg.orders.find(o => o.order_id === order_id) ?? { policy_bps: 2000, naive: false };
     const amountNear = (Number(BigInt(order.amount) / 10n ** 21n) / 1000).toString(); // display only
@@ -178,7 +179,11 @@ export function makeRelayer(cfg, deps = {}) {
       if (failed) {
         const error = failed.error ?? 'ERR_PAYOUT_FAILED';
         appendLog('claims.log', { order_id, claim_tx: r.txHash, error: 'ERR_PAYOUT_FAILED' });
-        const hint = registrationHint(failed.token ?? cfg.tokenId ?? null, cfg.buyerId);
+        // The callback names the order's token: null means a NEAR order, where registration is not the cause
+        // (a stale TOKEN_ID in the env must not send the shopper to register on a token for a NEAR payout).
+        const hint = failed.token
+          ? registrationHint(failed.token, cfg.buyerId)
+          : `check that ${cfg.buyerId} is an existing NEAR account that can receive the transfer`;
         throw Object.assign(new Error(`ERR_PAYOUT_FAILED: ${error}; the order is open again, retry after fixing it`), {
           status: 502,
           txHash: r.txHash,
