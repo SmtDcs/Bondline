@@ -47,6 +47,8 @@ test('style.css styles bubbles, badges and the token line', () => {
 });
 
 test('app.js is an importable ES module', async () => {
+  globalThis.location = new URL('http://127.0.0.1:8787/');
   const mod = await import(pathToFileURL(path.join(root, 'web/app.js')).href);
   assert.equal(typeof mod, 'object');
+  assert.equal(typeof mod.rpcView, 'function');
 });
