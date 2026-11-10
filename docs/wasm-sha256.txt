@@ -1,1 +1,35 @@
+# Contract wasm: sha256 and the exact build that produced it
+
 c4d88ead840e3300356aba35072a8cd1ef897edaa3ce9d2ac2590326bd7d8941  contract/res/bot_promises.wasm
+
+## Build (this machine, 2026-11-10)
+
+| item | value |
+| --- | --- |
+| command | `npm run build:contract` (= `cargo near build non-reproducible-wasm --no-abi`) |
+| size | 236505 bytes |
+| rustc | 1.95.0 (59807616e 2026-04-14) |
+| cargo | 1.95.0 (f2d3ce0bd 2026-03-21) |
+| cargo-near | cargo-near-near 0.23.0 |
+| near-sdk | 5.30.1 |
+| wasm target | wasm32-unknown-unknown |
+| dependency lock | `contract/Cargo.lock` (sha256 c598919a8558cca78ff0f930499bcf7746a7a3809d36a739f72008c126c3d9c0), committed |
+
+## Why this hash differs from the plan's reference build
+
+TASKS T02 records a reference build of 238571 bytes / sha256
+`674c71471116c7ca6702f453863bfa520057dde5284e901a9671220b3a919c55` (2026-11-09, PLAN line 9:
+cargo-near 0.22.0). This build used cargo-near **0.23.0**, whose wasm pipeline differs (it daisy-chains
+the optimizer/`walrus`/wasm-opt steps differently), and no build here is reproducible-byte-identical
+by design (`non-reproducible-wasm`). Hence 236505 bytes and a different sha256, **not** a different
+contract: `contract/src/*.rs` is byte identical to the committed skeleton (no source change in T02),
+and the binary is 236505 bytes, below the 238000-245000 range TASKS quotes as "about 239 KB".
+
+Consequences, recorded so nobody re-deploys by accident:
+- The contract deployed on testnet (`cbp-sm1110.testnet`, deploy tx
+  `9g8gNoE6sTocnLGm95LnExkNS15bn4SB7uX7MoVFXtKX`) IS this binary:
+  236505 bytes, sha256 `c4d88ead840e3300356aba35072a8cd1ef897edaa3ce9d2ac2590326bd7d8941`.
+  That hash must stay.
+- Adding `contract/Cargo.lock` pins every crate version, so a rebuild on this machine selects the same
+  dependencies; the output can still differ byte-wise because the build is not reproducibly compiled.
+  Verify a rebuild by `cargo test` + a same-size/behaviour check, not by the hash alone.
