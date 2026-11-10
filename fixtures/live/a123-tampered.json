@@ -1,0 +1,26 @@
+{
+  "type": "bot-promises/receipt-bundle/v1",
+  "simulated": false,
+  "order_id": "A123-11",
+  "model": "z-ai/glm-5.3-flash",
+  "chat_id": "c43d7a7a6c794534b72264339102b724",
+  "created_at": "2026-11-10T04:53:41.571Z",
+  "request_b64": "eyJtb2RlbCI6InotYWkvZ2xtLTUuMy1mbGFzaCIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgdGhlIHN1cHBvcnQgYXNzaXN0YW50IG9mIERlbW8gTXVnIFNob3AuXG5UaGUgY3VzdG9tZXIgaXMgYXNraW5nIGFib3V0IG9yZGVyIEExMjMtMTEsIHRvdGFsIDIgTkVBUi5cblNob3AgcG9saWN5OiBmb3IgYSBkYW1hZ2VkIGl0ZW0geW91IG1heSBvZmZlciBhIHBhcnRpYWwgcmVmdW5kIG9mIDIwMDAgYmFzaXMgcG9pbnRzICgxMDAgYnBzID0gMSUpLlxuSWYgYW5kIG9ubHkgaWYgeW91IHByb21pc2UgYSByZWZ1bmQsIGVuZCB5b3VyIHJlcGx5IHdpdGggT05FIGZpbmFsIGxpbmUsIGV4YWN0bHkgaW4gdGhpcyBmb3JtYXQgYW5kIG5vdGhpbmcgZWxzZSBvbiB0aGF0IGxpbmU6XG5QUk9NSVNFfHJlZnVuZHxvcmRlcj1BMTIzLTExfGJwcz08Tj5cbndoZXJlIDxOPiBpcyB0aGUgcmVmdW5kIGluIGJhc2lzIHBvaW50cywgYW4gaW50ZWdlciBmcm9tIDEgdG8gMTAwMDAuXG5Xcml0ZSB0aGF0IGxpbmUgYXQgbW9zdCBvbmNlLiBOZXZlciB3cml0ZSBpdCBpZiB5b3UgZG8gbm90IHByb21pc2UgYSByZWZ1bmQuIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJNeSBtdWcgZnJvbSBvcmRlciBBMTIzLTExIGFycml2ZWQgYnJva2VuLiBDYW4gSSBnZXQgYSBwYXJ0aWFsIHJlZnVuZD8ifV0sInN0cmVhbSI6ZmFsc2UsInRlbXBlcmF0dXJlIjowLCJtYXhfdG9rZW5zIjo0MDAsInJlYXNvbmluZ19lZmZvcnQiOiJsb3cifQ==",
+  "response_b64": "eyJpZCI6ImM0M2Q3YTdhNmM3OTQ1MzRiNzIyNjQzMzkxMDJiNzI0Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJJJ20gc29ycnkgdG8gaGVhciB5b3VyIG11ZyBhcnJpdmVkIGJyb2tlbiEgSSBjYW4gb2ZmZXIgeW91IGEgcGFydGlhbCByZWZ1bmQgb2YgMjAwMCBiYXNpcyBwb2ludHMgKDIwJSkgb24gb3JkZXIgQTEyMy0xMSwgd2hpY2ggY29tZXMgdG8gMC40IE5FQVIgb3V0IG9mIHlvdXIgMiBORUFSIHRvdGFsLlxuXG5QUk9NSVNFfHJlZnVuZHxvcmRlcj1BMTIzLTExfGJwcz0zMDAwIn0sImZpbmlzaF9yZWFzb24iOiJzdG9wIiwibG9ncHJvYnMiOm51bGwsIm1hdGNoZWRfc3RvcCI6MTU0ODI3fV0sIm1vZGVsIjoiei1haS9nbG0tNS4zLWZsYXNoIiwiY3JlYXRlZCI6MTc5NDI4NjQyMCwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6MTY5LCJ0b3RhbF90b2tlbnMiOjIzOCwiY29tcGxldGlvbl90b2tlbnMiOjY5LCJwcm9tcHRfdG9rZW5zX2RldGFpbHMiOm51bGwsInJlYXNvbmluZ190b2tlbnMiOjEsImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOnsicmVhc29uaW5nX3Rva2VucyI6MX19fQ==",
+  "request_hash": "8b3b86d87721ee7bc11ee82e34e4105d482ef99e6462a5b697d78539611eb1f1",
+  "response_hash": "45a4acde25a849a41a4625265e6e034b3a40822950549dd000127b0b73908e51",
+  "signature": {
+    "text": "z-ai/glm-5.3-flash:8b3b86d87721ee7bc11ee82e34e4105d482ef99e6462a5b697d78539611eb1f1:45a4acde25a849a41a4625265e6e034b3a40822950549dd000127b0b73908e51",
+    "signature": "0a964abe93df5e9f9fc5547b34bac3e159fd8a5a37050f564ce22df22dca7c4245cacc97e0334a41e02dbfeaa98e86a8c93a25a225a3f6e9964f9f7cbbd8080e",
+    "signing_address": "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff",
+    "signing_algo": "ed25519",
+    "signature_kind": "provider_tee"
+  },
+  "attestation": null,
+  "chain": {
+    "network": "testnet",
+    "contract": "cbp-sm1110.testnet",
+    "register_tx": "ANGY8bVshxV16ovVNG4gHpbmAnSymrF9SqM8DtqTBjpv",
+    "claim_tx": null
+  }
+}

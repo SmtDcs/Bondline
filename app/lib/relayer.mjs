@@ -63,8 +63,11 @@ export function makeRelayer(cfg, deps = {}) {
   const buildBytes = deps.buildRequestBytes ?? buildRequestBytes;
   const chatOnce = deps.chatExact ?? chatExact;
   const history = new Map(); // order_id -> [{role, content}]
-  const bundleDir = 'data/bundles';
+  const dataDir = 'data';
+  const bundleDir = path.join(dataDir, 'bundles');
   fs.mkdirSync(bundleDir, { recursive: true });
+  // T18: one JSON line per claim / register-edited attempt, read back by app/scripts/record-transcript.mjs.
+  const appendLog = (file, entry) => fs.appendFileSync(path.join(dataDir, file), JSON.stringify(entry) + '\n');
 
   async function handleChat({ order_id, message } = {}) {
     requireOrderId(order_id);
@@ -110,6 +113,7 @@ export function makeRelayer(cfg, deps = {}) {
 
   async function handleClaim({ order_id, response_b64 }) {
     const r = await callFinal(buyer, cfg.contractId, 'claim', { order_id, response_b64 }, { tgas: 100 });
+    appendLog('claims.log', { order_id, claim_tx: r.txHash, result: r.value });
     return { ok: true, result: r.value, claim_tx: r.txHash, explorer: explorerTx(r.txHash) };
   }
 
@@ -122,9 +126,16 @@ export function makeRelayer(cfg, deps = {}) {
     if (!bytes.includes(edit.from)) throw Object.assign(new Error('ERR_EDIT_NOT_FOUND'), { status: 400, detail: `edit.from ${JSON.stringify(edit.from)} is not in the reply bytes` });
     const editedHash = sha256Hex(Buffer.from(bytes.replace(edit.from, edit.to), 'utf8'));
     const editedText = bundle.signature.text.replace(bundle.response_hash, editedHash);
-    return callFinal(merchant, cfg.contractId, 'register_receipt', {
-      order_id, signed_text: editedText, signature_hex: bundle.signature.signature, signer_public_key_hex: bundle.signature.signing_address,
-    }, { tgas: 100 });
+    try {
+      const r = await callFinal(merchant, cfg.contractId, 'register_receipt', {
+        order_id, signed_text: editedText, signature_hex: bundle.signature.signature, signer_public_key_hex: bundle.signature.signing_address,
+      }, { tgas: 100 });
+      appendLog('merchant.log', { kind: 'register-edited', order_id, tx: r.txHash, error: null });
+      return r;
+    } catch (e) {
+      appendLog('merchant.log', { kind: 'register-edited', order_id, tx: e.txHash ?? null, error: errCode(e) });
+      throw e;
+    }
   }
 
   return { handleChat, handleClaim, handleRegisterEdited };
