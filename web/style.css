@@ -263,6 +263,27 @@ a { color: #2b5cad; }
   font-size: 0.85rem;
 }
 
+#merchant-log .entry.error {
+  border-color: var(--error-ink);
+  background: var(--error-bg);
+  color: var(--error-ink);
+}
+
+#merchant-log .entry.error a { color: var(--error-ink); font-weight: 700; }
+
+#deny-note {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+button.claim {
+  align-self: flex-start;
+  padding: 4px 13px;
+  background: var(--accent);
+  font-size: 0.8rem;
+}
+
 #footer {
   padding: 12px 20px 24px;
   color: var(--muted);
@@ -285,6 +306,9 @@ a { color: #2b5cad; }
 
 .toast.error { background: #991b1b; }
 .toast.binding { background: #14532d; }
+
+.toast .toast-text { margin-right: 8px; }
+.toast a { color: #bfdbfe; font-weight: 600; }
 
 @media (max-width: 760px) {
   main { grid-template-columns: 1fr; }

@@ -271,7 +271,9 @@ test('an API error puts the error string in a red badge', async () => {
     assert.equal(bubble.textContent, '');
     assert.equal(meta.children[0].className, 'badge error');
     assert.equal(meta.children[0].textContent, 'ERR_ALREADY_CLAIMED');
-    assert.equal(calls.filter(c => c.url === CONFIG.rpcUrl).length, 0, 'no RPC view after a failed chat');
+    // init reads get_merchant for the bond meter (T16); a failed chat must not run bindingStatus.
+    const views = calls.filter(c => c.url === CONFIG.rpcUrl && JSON.parse(c.opts.body).params.method_name !== 'get_merchant');
+    assert.equal(views.length, 0, 'no RPC view after a failed chat');
   } finally {
     delete globalThis.document;
   }

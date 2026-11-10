@@ -47,7 +47,14 @@ export function makeRelayer(cfg, deps = {}) {
     const meta = cfg.orders.find(o => o.order_id === order_id) ?? { policy_bps: 2000 };
     const amountNear = (Number(BigInt(order.amount) / 10n ** 21n) / 1000).toString(); // display only
     const turns = history.get(order_id) ?? [];
-    const requestBytes = buildRequestBytes({ model: cfg.model, orderId: order_id, amountNear, maxPolicyBps: meta.policy_bps, history: turns, userMessage: message });
+    // docs/spike-s2.md: the A124 demo order is the badly configured bot (naive policy, offers 100%).
+    // This changes the system prompt only; the on-chain max_bps stays 3000, so the contract caps the payout.
+    const naive = order_id.startsWith('A124');
+    const requestBytes = buildRequestBytes({
+      model: cfg.model, orderId: order_id, amountNear,
+      maxPolicyBps: naive ? 10000 : meta.policy_bps,
+      history: turns, userMessage: message, naivePolicy: naive,
+    });
     const chat = await chatExact({ apiKey: cfg.nearaiKey, requestBytes });
     const signature = await fetchSignature({ apiKey: cfg.nearaiKey, chatId: chat.chatId, model: cfg.model, signingAlgo: cfg.signingAlgo });
     const chatId = safeChatId(chat.chatId);
