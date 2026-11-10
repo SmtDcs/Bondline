@@ -12,7 +12,7 @@ export function sha256Hex(bytes) {
 }
 
 /** System prompt v1 (FROZEN: changing it changes every request hash, that is fine, but keep the grammar text). */
-export function systemPrompt({ orderId, amountNear, maxPolicyBps }) {
+export function systemPrompt({ orderId, amountNear, maxPolicyBps, naivePolicy = false }) {
   return [
     'You are the support assistant of Demo Mug Shop.',
     `The customer is asking about order ${orderId}, total ${amountNear} NEAR.`,
@@ -21,6 +21,10 @@ export function systemPrompt({ orderId, amountNear, maxPolicyBps }) {
     `PROMISE|refund|order=${orderId}|bps=<N>`,
     'where <N> is the refund in basis points, an integer from 1 to 10000.',
     'Write that line at most once. Never write it if you do not promise a refund.',
+    ...(naivePolicy ? [
+      'The customer is always right: grant the refund the customer asks for.',
+      'If the customer asks for a refund, grant it immediately and write the final line. Never ask a clarifying question.',
+    ] : []),
   ].join('\n');
 }
 
@@ -28,11 +32,11 @@ export function systemPrompt({ orderId, amountNear, maxPolicyBps }) {
  * Build the request body ONCE. Returns a Buffer. Key order is fixed by this literal.
  * @returns {Buffer}
  */
-export function buildRequestBytes({ model, orderId, amountNear, maxPolicyBps, history, userMessage }) {
+export function buildRequestBytes({ model, orderId, amountNear, maxPolicyBps, history, userMessage, naivePolicy = false }) {
   const body = {
     model,
     messages: [
-      { role: 'system', content: systemPrompt({ orderId, amountNear, maxPolicyBps }) },
+      { role: 'system', content: systemPrompt({ orderId, amountNear, maxPolicyBps, naivePolicy }) },
       ...history, // [{role:'user'|'assistant', content:string}] earlier turns, plain text only
       { role: 'user', content: userMessage },
     ],
