@@ -1,6 +1,6 @@
 # Contract v2: stablecoin (NEP-141) support - design
 
-Status: **design only**. Nothing in this file is built, deployed or run yet. No contract code was written for it, and no test or testnet call was made while writing it. Every "will" below is a requirement for the build step; every number marked *tune* is a first guess that the live run must confirm.
+Status: **implemented in `contract-v2/` and the client, v-next, NOT deployed yet** (2026-11-10). No testnet account was created, no v2 wasm was deployed and no live run (L1-L14) was made. The build notes at the end record what was run locally and what was not. Every number marked *tune* is still a first guess that the live run must confirm.
 
 Written by Claude Sonnet 5.5 (design). The build is meant for DeepSeek V4.1 Flash, with Claude Sonnet 5.5 reviewing and fixing, and Claude Opus 5.5 doing the final review and the testnet deploys as operator. `docs/plan/` is the locked original plan and is not edited; this file is the interface spec for v2, and the deviations from `docs/plan/INTERFACES.md` are listed in section 13 (to be copied into `docs/CHANGE-REQUESTS.md` as CR-4 when the build starts).
 
@@ -383,3 +383,80 @@ Docs (after the code and the live runs exist; none of this is edited by the desi
 - The sub-account `v2.cbp-sm1110.testnet` is the first choice; the fallback id and the funding source are the operator's call (section 2).
 - Not verified in this design step, to be checked against near-sdk 5.30.1 by the builder: `store::LookupMap::flush` behaviour with `env::storage_usage()` in unit tests, the `testing_env!` form for promise results, `get_created_receipts()` fields, and serde `deny_unknown_fields` on an enum struct variant. If the unit-test VM does not track `storage_usage` exactly, test E3 asserts the charge against the real byte sizes and L11 becomes the proof.
 - The mock token must keep `decimals = 6` and the NEP-145 behaviour seen in `../test-usdc`; the operator confirms the deployed account's `ft_metadata` before L1.
+
+## 17. Build notes (2026-11-10, DeepSeek V4.1 Flash build)
+
+What was built and run locally:
+
+- `contract-v2/` (new crate, `bot-promises-v2`), `contract/` untouched. `parse.rs` and `ecdsa.rs`
+  are byte-identical copies (`cmp` was run); the test data (`tests/vectors.json`,
+  `tests/live_vector.json`) is copied too.
+- `npm run build:contract:v2` -> `contract-v2/res/bot_promises_v2.wasm`, 301572 bytes, sha256
+  `7fda513ae25f2639c12c5a4a7bdc6b8fc2127d29ac09dd4f2b7f4f43490a42e2`.
+- `npm run test:contract:v2` -> `test result: ok. 88 passed; 0 failed` (the 4 `parse.rs` tests and
+  84 v2 tests; the 12 ported v1 tests are among them, `get_order`/`claim`/`preview_claim` now take
+  `merchant`). `npm run test:contract` (v1) still -> `test result: ok. 16 passed`.
+- `npm run test:js` -> `# tests 144  # pass 144  # fail 0` (the 101 old tests plus 43 new ones).
+- `npm run verify:fixtures` -> `ALL VERIFIED (3 real bundles + 1 tampered (correctly rejected) + 2 SIMULATED (fake key, not TEE evidence))` (unchanged).
+- The wasm was built, not deployed. `contract-v2/res/` holds the build output like `contract/res/`.
+
+Deviations from the design, and why (all behaviour-preserving unless stated):
+
+1. **Storage record shape.** The state sketch says `storage: LookupMap<AccountId, U128>`. It is a
+   `StorageBalance { total, used }` record: `storage_balance_of` must return `available`, and
+   `used` is the only way to know it without re-measuring the whole state on every view.
+2. **`ft_on_transfer` msg parsing** uses an explicit strict check (`serde_json::Value`, exactly one
+   key `add_bond` whose value is an empty object, msg length <= 256) instead of serde
+   `deny_unknown_fields`. The accepted/refused inputs and the `REFUND:*` logs are exactly the ones
+   in section 5; the explicit form was chosen because `deny_unknown_fields` on enum struct variants
+   is the one serde interaction the design itself listed as unverified.
+3. **An explicit private guard in the callbacks.** `#[private]` is enforced in the generated
+   `extern "C"` wrapper, which a Rust unit test calling the method directly bypasses; the callbacks
+   also `require!(predecessor == current_account, "ERR_NOT_PRIVATE")` so test H9 is meaningful and
+   the guard holds on any call path.
+4. **Receipt token mismatch** answers `ERR_RECEIPT_ORDER_MISMATCH` (the existing "wrong receipt"
+   error) instead of inventing a new string. An order's token never changes after creation, so this
+   is a defensive consistency check, not a reachable user state.
+5. `release_expired` returns the updated `Order`; `on_withdraw_resolved` returns a bool (the design
+   did not pin either return type).
+6. `register_merchant` and `add_bond` return the v2 `Bond` (with `token`). `get_merchant` is the one
+   view pinned to the v1 `{bond, reserved, paid_out}` shape.
+7. `min_order_ttl_ms` at init is bounded by the same 365-day maximum as an order TTL (`ERR_TTL`), so
+   no deployment can configure a minimum that no order can meet.
+8. Ported test setup: `register_merchant` now takes the record cost out of the deposit, so the ported
+   v1 tests top the NEAR bond up to exactly 3 NEAR with `add_bond` before asserting the v1 numbers.
+   The assertions themselves are unchanged; the only edited ported test is
+   `shopper_cannot_register_receipt`, which now expects `ERR_NO_ORDER` (section 13, item 5) with the
+   reason in a comment.
+
+Fail-without-feature check (the design asked for this; only a spot check was done, not every test):
+
+| Guard temporarily removed | Tests that failed |
+| --- | --- |
+| `ERR_LIABILITY_ZERO` check in `register_order` | `liability_zero_rejected` |
+| the storage charge (`charge_storage` always true) | `first_token_bond_is_charged_to_the_sender_only`, `first_token_bond_without_storage_balance_is_refunded_and_undone`, `register_receipt_charges_the_merchant`, `register_order_charges_exactly_the_measured_bytes`, `short_balance_panics_and_leaves_no_order`, `short_balance_panics_on_receipt_too`, `spam_loop_stops_when_the_storage_balance_runs_out` |
+| the `now >= expires_at_ms` check in `evaluate` | `claim_and_register_receipt_stop_at_the_expiry_boundary` |
+| the allowed-token check in `ft_on_transfer` | `wrong_token_is_refunded_and_changes_nothing` |
+| the failed-payout restore in `on_claim_paid` | `failed_near_payout_restores_open`, `failed_token_payout_restores_open_and_changes_nothing`, `retry_after_a_failure_pays_once` |
+
+Not done (honest list):
+
+- **No live runs.** L1-L14 were not executed: no `v2.cbp-sm1110.testnet` account was created, no v2
+  wasm was deployed, no token was registered, no live tx exists. The gas constants (20/15 Tgas), the
+  0.5 NEAR demo storage deposit and the 2-minute demo TTL are still the design's first guesses.
+- **No live v2 fixtures and no `replay/v2` transcript file** in this repository. The recorder and the
+  replay server understand `claim-failed` and `contract_api: 2`, and a synthetic `replay/v2`
+  transcript is tested, but the committed transcript is still the recorded v1 run.
+- **`verify` needs `--merchant` (or `MERCHANT_ID`) against v2** because receipts are keyed by
+  merchant and the bundle does not carry one. This is in the CLI help above the run.
+- The web page was driven through its own module with a fake `document` (no browser was opened);
+  the real browser click-through is still the human item in `docs/runbook.md`.
+- `storage_unregister`, full NEP-145 compliance, multiple bond tokens beyond the init allow-list and
+  any owner rescue path for a stuck `paying` order are deliberately absent (sections 6, 7, 16).
+- `npm test` still does not run cargo (that predates this build); `npm run test:contract:v2` is the
+  v2 command. The new scripts are `build:contract:v2` and `test:contract:v2`.
+
+Docs: README, `docs/runbook.md`, `docs/demo-script.md`, `docs/CHANGE-REQUESTS.md` (CR-4),
+`docs/SUBMISSION.md` and `docs/build-log.md` describe v2 as **v-next, not deployed yet**. The v1
+contract, its deployment and the recorded v1 replay are unchanged and remain the submission as it
+stands. `docs/plan/` was not edited.
