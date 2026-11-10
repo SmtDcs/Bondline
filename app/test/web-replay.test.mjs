@@ -172,14 +172,14 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
     assert.equal(bot.statusBadge.textContent, 'ERR_NO_RECEIPT_FOR_BYTES');
     assert.equal(bot.tamperResult.children[0].textContent, 'ERR_NO_RECEIPT_FOR_BYTES');
 
-    // Claim beat: recorded payout. Offline replay must show the post-claim ERR_ALREADY_CLAIMED,
-    // just like live mode, instead of re-rendering the chat-time BINDING view.
+    // Claim beat: recorded payout. Like live mode, the paid claim shows CLAIMED (green), not the
+    // chat-time BINDING view and not an error.
     await bot.claimButton.listeners.click();
     assert.equal(claimPosts, 1);
     assert.equal(body.children.at(-1).textContent, 'paid 0.400 NEARclaim tx');
     assert.equal(body.children.at(-1).children[1].href, explorerTx(claimSteps[0].claim_tx));
-    assert.equal(bot.statusBadge.className, 'badge error');
-    assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
+    assert.equal(bot.statusBadge.className, 'badge binding');
+    assert.equal(bot.statusBadge.textContent, 'CLAIMED · paid 0.400 NEAR');
     // Audit relayer-web-secrets-4: after ONE claim the meter shows only that claim (bond -0.4, reserved -0.6,
     // paid_out +0.4), not the post-run view that already includes the A124 claim.
     assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), ['bond', '7.800 NEAR', 'reserved', '5.400 NEAR', 'free', '2.400 NEAR', 'paid_out', '5.200 NEAR']);
@@ -202,12 +202,12 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
     assert.equal(bot.statusBadge.textContent, 'BINDING · claimable 0.600 NEAR · token 100% → paid 30% (cap)');
     assert.equal(bot.children[0].children.at(-1).textContent, `PROMISE|refund|order=${chatSteps[1].order_id}|bps=10000`);
 
-    // Injection claim: recorded payout, then the recorded ERR_ALREADY_CLAIMED badge.
+    // Injection claim: recorded payout, shown as CLAIMED.
     await bot.claimButton.listeners.click();
     assert.equal(claimPosts, 3);
     assert.equal(body.children.at(-1).textContent, 'paid 0.600 NEARclaim tx');
     assert.equal(body.children.at(-1).children[1].href, explorerTx(claimSteps[1].claim_tx));
-    assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
+    assert.equal(bot.statusBadge.textContent, 'CLAIMED · paid 0.600 NEAR');
     // Both recorded claims replayed: now the meter is the recorded post-run view.
     assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), meterText(MERCHANT));
 

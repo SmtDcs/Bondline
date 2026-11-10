@@ -179,8 +179,8 @@ test('a BINDING bubble gets a Claim button that pays, toasts, turns the badge re
     assert.equal(toast.children[1].textContent, 'claim tx');
     assert.equal(toast.children[1].href, 'https://testnet.nearblocks.io/txns/claim1');
 
-    assert.equal(bot.statusBadge.className, 'badge error');
-    assert.equal(bot.statusBadge.textContent, 'ERR_ALREADY_CLAIMED');
+    assert.equal(bot.statusBadge.className, 'badge binding', 'a paid claim is shown as a success, not an error');
+    assert.equal(bot.statusBadge.textContent, 'CLAIMED · paid 0.400 NEAR');
     assert.equal(bot.claimButton.disabled, false, 'T17: the Claim button stays clickable');
 
     assert.ok(calls.filter(isMerchantCall).length > merchantCallsBefore, 'bond meter refreshed after the claim');

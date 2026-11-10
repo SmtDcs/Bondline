@@ -430,27 +430,17 @@ async function claim(row, btn) {
       return;
     }
     showToast(claimToastText(data.result.payout, row.tokenId), data.explorer);
+    // A paid claim is a success: say so in green. (Re-reading preview_claim here returned ERR_ALREADY_CLAIMED,
+    // which showed a red error right after a successful payout.) A second click still shows the contract's
+    // ERR_ALREADY_CLAIMED from the failed second claim.
+    setBadge(row.statusBadge, { cls: 'binding', text: `CLAIMED · ${claimToastText(data.result.payout, row.tokenId)}` });
   } catch (err) {
     failed = true;
     showToast(err.message, null, 'toast error');
   } finally {
     // T17: the button stays clickable after a claim; a second click shows the 400 ERR_ALREADY_CLAIMED.
     btn.disabled = false;
-    if (!failed) {
-      if (OFFLINE && CFG?.mode === 'replay') {
-        // T19: live mode re-runs preview_claim after the claim and gets ERR_ALREADY_CLAIMED; the
-        // transcript's views were recorded before the claim, so show the same post-claim error.
-        REPLAY_CLAIMED.add(row.orderId);
-        setBadge(row.statusBadge, { cls: 'error', text: 'ERR_ALREADY_CLAIMED' });
-      } else {
-        try {
-          const views = await bindingStatus(row.orderId, bundle.response_b64, row.views);
-          setBadge(row.statusBadge, badgeText({ ...views, tokenId: row.tokenId, expiresAtMs: row.expiresAtMs }));
-        } catch (err) {
-          setBadge(row.statusBadge, { cls: 'error', text: err.message });
-        }
-      }
-    }
+    if (!failed && OFFLINE && CFG?.mode === 'replay') REPLAY_CLAIMED.add(row.orderId);
     await refreshBondMeter().catch(() => {});
   }
 }
