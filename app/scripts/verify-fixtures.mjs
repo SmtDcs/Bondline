@@ -70,9 +70,12 @@ if (files.length === 0) {
   console.log('FAIL no fixture bundles found');
 }
 
-const simulatedCount = files.filter(f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')).simulated === true; } catch { return false; } }).length;
-const realCount = files.length - simulatedCount;
-// Real and simulated counts are never merged: SIMULATED bundles use a publicly known fake key and are not TEE evidence.
-const counts = `${realCount} real bundles${simulatedCount > 0 ? ` + ${simulatedCount} SIMULATED (fake key, not TEE evidence)` : ''}`;
+const isTampered = (f) => path.basename(f).includes('tampered');
+const tamperedCount = files.filter(isTampered).length;
+const simulatedCount = files.filter(f => { if (isTampered(f)) return false; try { return JSON.parse(fs.readFileSync(f, 'utf8')).simulated === true; } catch { return false; } }).length;
+const realCount = files.length - simulatedCount - tamperedCount;
+// Real, tampered and simulated counts are never merged: SIMULATED bundles use a publicly known fake key and are not TEE
+// evidence; a tampered copy is a real receipt edited on purpose, which must FAIL.
+const counts = `${realCount} real bundles${tamperedCount > 0 ? ` + ${tamperedCount} tampered (correctly rejected)` : ''}${simulatedCount > 0 ? ` + ${simulatedCount} SIMULATED (fake key, not TEE evidence)` : ''}`;
 console.log(failed ? 'SOME FAILED' : `ALL VERIFIED (${counts})`);
 process.exit(failed ? 1 : 0);

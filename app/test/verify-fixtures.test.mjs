@@ -113,3 +113,15 @@ test('a real bundle must use a signing_address listed in fixtures/attestation (s
   assert.match(r.out, /FAIL fixtures\/live\/a123\.json signing_address 5a0210f2442c\.\.\. not in fixtures\/attestation\//);
   assert.equal(lastLine(r.out), 'SOME FAILED');
 });
+
+test('a detected tampered copy is counted apart from real and simulated bundles', (t) => {
+  const root = tempRepo(t);
+  write(root, 'fixtures/simulated/honest.json', honest);
+  const resp = Buffer.from(honest.response_b64, 'base64');
+  resp[resp.length - 2] ^= 1;   // flip one byte of the response: the response-hash check must fail
+  write(root, 'fixtures/simulated/honest-tampered.json', { ...honest, response_b64: resp.toString('base64') });
+
+  const r = run(root);
+  assert.equal(r.status, 0, r.out);
+  assert.equal(lastLine(r.out), 'ALL VERIFIED (0 real bundles + 1 tampered (correctly rejected) + 1 SIMULATED (fake key, not TEE evidence))');
+});
