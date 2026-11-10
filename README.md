@@ -16,14 +16,14 @@ Built at NEAR HACKATHON (2026-11) by Samet. Track: Real-World Money (`realworld`
 - The per-order cap is reserved from the bond when the order is created, so the shop cannot withdraw it.
 
 ## Try it in 2 minutes (no keys, no Rust)
-Needs Node 22.22.2+ (24 recommended).
+Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys, no Rust for steps 1-4 and 6.
 
-1. `npm ci` - installs the three runtime dependencies.
+1. `npm ci` - installs the three direct dependencies (181 packages with their dependencies). On Node 22 it prints `EBADENGINE` warnings for `@nearai/inference-sdk`, which declares Node >= 24.22.1: only `npm run attest` and `npm run spike:s1` import that SDK, so the warnings do not affect anything below.
 2. `npm run verify:fixtures` - last line `ALL VERIFIED (6 bundles)`: real NEAR AI receipts re-checked offline (hashes, signed text, ed25519 signature); the tampered fixture must be reported as tamper detected.
 3. `npm run verify -- fixtures/live/a123.json` - last line `VERIFIED`: also checks testnet (signer registered, receipt on chain, preview_claim). Order A123-11 is already claimed, so `preview_claim` answers `ERR_ALREADY_CLAIMED`, which still passes: the signer and receipt checks are the point.
-4. `npm run demo:replay`, open http://127.0.0.1:8787 - click through the recorded demo (beats below). Add `?offline=1` if testnet RPC is unreachable.
+4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the recorded badges and the Claim button show up: the plain URL http://127.0.0.1:8787 runs the same replay but asks testnet for the BINDING check, and both recorded orders are already claimed on chain, so it shows `ERR_ALREADY_CLAIMED` (the honest live state) instead of the claimable badges. `?offline=1` touches nothing but localhost.
 5. (Rust 1.95 installed) `npm run test:contract` - see `test result: ok. 16 passed; 0 failed`.
-6. `npm run test:js` - see `# fail 0` (57 tests).
+6. `npm run test:js` - see `# fail 0` (75 tests).
 
 ## Verify each claim
 | Claim | Do | See |
