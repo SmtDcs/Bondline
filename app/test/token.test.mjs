@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ftMetadata, storageBalanceOf, buildAddBondMsg, ftTransferCallArgs, registrationHint,
+  ftMetadata, storageBalanceOf, loadTokenConfig, buildAddBondMsg, ftTransferCallArgs, registrationHint,
   FT_TRANSFER_CALL_TGAS, FT_TRANSFER_CALL_DEPOSIT_YOCTO,
 } from '../lib/token.mjs';
 
@@ -60,4 +60,17 @@ test('the registration hint names the token and the account', () => {
   assert.match(hint, /cbp-bob-sm1110\.testnet/);
   assert.match(hint, /tusdc\.testnet/);
   assert.match(hint, /storage_deposit/);
+});
+
+
+test('loadTokenConfig keeps the tokens the market is registered on and lists the others', async () => {
+  const p = provider((contractId, method, args) => {
+    if (method === 'ft_metadata') return { symbol: contractId === 'a.testnet' ? 'A' : 'B', decimals: 6 };
+    if (method === 'storage_balance_of') { assert.equal(args.account_id, 'market.testnet'); return contractId === 'a.testnet' ? { total: '1', available: '1' } : null; }
+    throw new Error(`unexpected ${method}`);
+  });
+  assert.deepEqual(await loadTokenConfig(p, 'market.testnet', ['a.testnet', 'b.testnet']), {
+    tokens: [{ id: 'a.testnet', symbol: 'A', decimals: 6 }],
+    unregistered: ['b.testnet'],
+  });
 });

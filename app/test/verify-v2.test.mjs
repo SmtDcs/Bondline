@@ -26,7 +26,7 @@ function tmpBundle(t) {
   return file;
 }
 
-async function stubV2(t) {
+async function stubV2(t, { marketRegistered = true } = {}) {
   const calls = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -38,6 +38,7 @@ async function stubV2(t) {
         get_config: { api: 2, owner: 'v2.cbp-sm1110.testnet', allowed_tokens: [TOKEN], min_order_ttl_ms: '120000' },
         get_signer: { kind: 'provider_tee', model_id: REAL.model, attestation_sha256: ATT_SHA, added_at_ms: '1', expires_at_ms: String(Date.now() + 86_400_000) },
         get_receipt: { order_id: REAL.order_id, merchant: MERCHANT, token: TOKEN, order_amount: '20000000', block_height: 1 },
+        storage_balance_of: marketRegistered ? { total: '1250000000000000000000', available: '1250000000000000000000' } : null,
         preview_claim: { ok: true, token_bps: 2000, paid_bps: 2000, payout: '4000000', token: TOKEN },
       }[params.method_name];
       res.setHeader('content-type', 'application/json');
@@ -62,13 +63,15 @@ test('a v2 contract is checked with merchant and prints the token and raw amount
   const r = await runAsync([tmpBundle(t), '--rpc', rpc.url, '--contract', 'v2.cbp-sm1110.testnet', '--merchant', MERCHANT]);
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /^token tusdc\.testnet  order_amount 20000000 \(raw units\)$/m);
+  assert.match(r.out, /^PASS  market is registered on tusdc\.testnet \(storage_balance_of\)  registered$/m);
   assert.match(r.out, /^PASS  receipt token is in get_config\(\)\.allowed_tokens  tusdc\.testnet/m);
   assert.equal(lastLine(r.out), 'VERIFIED');
   const receipt = rpc.calls.find(c => c.method === 'get_receipt');
   assert.deepEqual(receipt.args, { merchant: MERCHANT, response_hash: REAL.response_hash });
   const preview = rpc.calls.find(c => c.method === 'preview_claim');
   assert.deepEqual(preview.args, { merchant: MERCHANT, order_id: REAL.order_id, response_b64: REAL.response_b64 });
-  assert.ok(rpc.calls.every(c => c.account === 'v2.cbp-sm1110.testnet'));
+  assert.ok(rpc.calls.filter(c => c.method !== 'storage_balance_of').every(c => c.account === 'v2.cbp-sm1110.testnet'));
+  assert.ok(rpc.calls.filter(c => c.method === 'storage_balance_of').every(c => c.account === TOKEN));
 });
 
 test('a v2 contract without a merchant is NOT VERIFIED and says how to pass it', async (t) => {
@@ -78,4 +81,13 @@ test('a v2 contract without a merchant is NOT VERIFIED and says how to pass it',
   assert.match(r.out, /pass --merchant <id> or set MERCHANT_ID/);
   assert.equal(lastLine(r.out), 'NOT VERIFIED');
   assert.ok(!rpc.calls.some(c => c.method === 'get_receipt'), 'no receipt lookup without a merchant');
+});
+
+
+test('a market that is not registered on the token is NOT VERIFIED', async (t) => {
+  const rpc = await stubV2(t, { marketRegistered: false });
+  const r = await runAsync([tmpBundle(t), '--rpc', rpc.url, '--contract', 'v2.cbp-sm1110.testnet', '--merchant', MERCHANT]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /^FAIL  market is registered on tusdc\.testnet \(storage_balance_of\)  null: deposit storage on the token/m);
+  assert.equal(lastLine(r.out), 'NOT VERIFIED');
 });

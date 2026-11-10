@@ -217,3 +217,25 @@ test('a v2 page submits a token order, formats 4 tUSDC, shows the expiry and the
     }
   });
 });
+
+
+test('a token order is hidden when the config has no metadata for its token', async () => {
+  const els = fakePage();
+  const config = { ...V2_CONFIG, tokens: [], orders: [{ order_id: 'A1', label: 'x', token: 'tusdc.testnet' }] };
+  await withFetch((call) => {
+    if (call.url === '/api/config') return jsonResponse(config);
+    const method = decodeMethod(call);
+    if (method === 'get_merchant') return rpcResponse({ bond: '1', reserved: '0', paid_out: '0' });
+    if (method === 'get_bonds') return rpcResponse([]);
+    throw new Error(`unexpected method ${method}`);
+  }, async () => {
+    try {
+      await import('../../web/app.js?stablecoin-hidden');
+      for (let i = 0; i < 200 && els['order-select'].children.length === 0; i++) await new Promise(r => setTimeout(r, 0));
+      await new Promise(r => setTimeout(r, 10));
+      assert.equal(els['order-select'].children.length, 0, 'a token order with no token metadata is not shown');
+    } finally {
+      delete globalThis.document;
+    }
+  });
+});

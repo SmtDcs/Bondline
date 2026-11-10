@@ -396,7 +396,7 @@ What was built and run locally:
 - `npm run test:contract:v2` -> `test result: ok. 88 passed; 0 failed` (the 4 `parse.rs` tests and
   84 v2 tests; the 12 ported v1 tests are among them, `get_order`/`claim`/`preview_claim` now take
   `merchant`). `npm run test:contract` (v1) still -> `test result: ok. 16 passed`.
-- `npm run test:js` -> `# tests 144  # pass 144  # fail 0` (the 101 old tests plus 43 new ones).
+- `npm run test:js` -> `# tests 147  # pass 147  # fail 0` (the 101 old tests plus 46 new ones).
 - `npm run verify:fixtures` -> `ALL VERIFIED (3 real bundles + 1 tampered (correctly rejected) + 2 SIMULATED (fake key, not TEE evidence))` (unchanged).
 - The wasm was built, not deployed. `contract-v2/res/` holds the build output like `contract/res/`.
 
@@ -449,6 +449,11 @@ Not done (honest list):
   transcript is tested, but the committed transcript is still the recorded v1 run.
 - **`verify` needs `--merchant` (or `MERCHANT_ID`) against v2** because receipts are keyed by
   merchant and the bundle does not carry one. This is in the CLI help above the run.
+- Section 9's market-registration check is implemented in three places, locally tested but never run
+  against a live token: `verify` adds a `market is registered on <token>` row, the v2 setup script
+  reads `storage_balance_of(market)` and stops with a clear message, and the server drops a token
+  order (and its token metadata) when the check fails, so the page hides it instead of showing it as
+  NEAR. `loadTokenConfig` is the shared helper.
 - The web page was driven through its own module with a fake `document` (no browser was opened);
   the real browser click-through is still the human item in `docs/runbook.md`.
 - `storage_unregister`, full NEP-145 compliance, multiple bond tokens beyond the init allow-list and

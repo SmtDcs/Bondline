@@ -602,7 +602,10 @@ async function init() {
   }
   $('contract-link').replaceChildren(link(cfg.contractId, `https://testnet.nearblocks.io/address/${cfg.contractId}`));
   const select = $('order-select');
-  for (const order of cfg.orders ?? []) {
+  // A token order is shown only when the token's metadata (and the market registration check that
+  // produced it) succeeded: an unformattable token order is not shown as if it were NEAR.
+  const visibleOrders = (cfg.orders ?? []).filter(o => !o?.token || tokenMetaFor(o.token, cfg.tokens));
+  for (const order of visibleOrders) {
     const option = element('option', '', orderLabel(order));
     option.value = order.order_id;
     select.append(option);

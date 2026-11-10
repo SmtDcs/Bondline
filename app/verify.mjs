@@ -46,6 +46,14 @@ if (!args.includes('--offline')) {
     if (receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
     if (api === 2) {
       const allowed = config?.allowed_tokens ?? [];
+      for (const tokenId of allowed) {
+        const balance = await view(provider, tokenId, 'storage_balance_of', { account_id: contractId });
+        rows.push({
+          check: `market is registered on ${tokenId} (storage_balance_of)`,
+          ok: balance !== null && balance !== undefined,
+          detail: balance ? 'registered' : 'null: deposit storage on the token before a token order',
+        });
+      }
       rows.push({
         check: 'receipt token is in get_config().allowed_tokens',
         ok: receipt?.token == null || allowed.includes(receipt.token),

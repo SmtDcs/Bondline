@@ -37,7 +37,7 @@ Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys, no Rust for 
    - Offline: `npm run verify -- fixtures/live/a123.json --offline` ends in `VERIFIED` (off-chain checks only; it also requires the signing key to be in an attestation record).
 4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the recorded badges and the Claim button show up: the plain URL http://127.0.0.1:8787 runs the same replay but asks testnet for the BINDING check, and both recorded orders are already claimed on chain, so it shows `ERR_ALREADY_CLAIMED` (the honest live state) instead of the claimable badges. `?offline=1` touches nothing but localhost.
 5. (Rust 1.95 installed) `npm run test:contract` - see `test result: ok. 16 passed; 0 failed`.
-6. `npm run test:js` - see `# fail 0` (144 tests).
+6. `npm run test:js` - see `# fail 0` (147 tests).
 7. (v2, not deployed) `npm run test:contract:v2` - see `test result: ok. 88 passed`.
 
 ## Verify each claim
@@ -145,7 +145,7 @@ wasm on testnet and no live transaction. Nothing in this section describes a run
 - Build: `npm run build:contract:v2` -> `contract-v2/res/bot_promises_v2.wasm` (301572 bytes,
   sha256 `7fda513ae25f2639c12c5a4a7bdc6b8fc2127d29ac09dd4f2b7f4f43490a42e2`).
 - Tests: `npm run test:contract:v2` -> `88 passed`; the v1 suite is still `16 passed`; `npm run
-  test:js` -> `144 passed`; `npm run verify:fixtures` is unchanged.
+  test:js` -> `147 passed`; `npm run verify:fixtures` is unchanged.
 - NEP-141 bonds: a merchant adds a bond in an allowed token with `ft_transfer_call` and
   `{"add_bond":{}}`; the market credits `sender_id` only. The design text is the spec
   (`docs/STABLECOIN.md` sections 4-5). NEAR stays `token = null`.
@@ -167,8 +167,10 @@ wasm on testnet and no live transaction. Nothing in this section describes a run
   a successful transaction is not a successful payout**. The shopper retries the same claim after
   fixing the cause. No owner rescue method exists on purpose.
 - NEP-145 registration (who must be registered on the token): the market contract, the merchant and
-  the buyer. The setup script registers the market, the merchant and the buyer; `verify` checks the
-  market's storage balance in its runbook step. A claim to an unregistered buyer fails safely and can
+  the buyer. The operator registers the market once (runbook L1); the setup
+  script checks that registration, then registers the merchant and the buyer, and `verify` prints a
+  FAIL row when the market has no storage on an allowed token. The server hides a token order when
+  its token metadata or the market registration check fails (the page never shows it as NEAR). A claim to an unregistered buyer fails safely and can
   be retried after registration. The page shows `register on tUSDC first` next to BINDING and does
   not block the Claim button.
 - Allow-list trust: the token list is fixed at init (at most 8). A token that lies about balances,

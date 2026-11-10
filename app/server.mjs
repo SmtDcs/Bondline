@@ -26,24 +26,37 @@ if (MODE === 'replay') {
   // never read as v1); the page then uses the v1 argument shapes and hides token orders.
   const { makeProvider, view } = await import('./lib/near.mjs');
   const { detectApi, orderArgs } = await import('./lib/contract-api.mjs');
-  const { ftMetadata } = await import('./lib/token.mjs');
+  const { loadTokenConfig } = await import('./lib/token.mjs');
   const provider = makeProvider(cfg.rpcUrl);
   let contractApi = null;
   try { contractApi = await detectApi(provider, cfg.contractId); } catch (e) { console.error(`contract version detection failed: ${e.message}`); }
-  const tokens = [];
+  let tokens = [];
   if (contractApi === 2) {
     try {
       const config = await view(provider, cfg.contractId, 'get_config', {});
-      for (const id of config.allowed_tokens ?? []) tokens.push(await ftMetadata(provider, id));
+      const loaded = await loadTokenConfig(provider, cfg.contractId, config.allowed_tokens ?? []);
+      tokens = loaded.tokens;
+      if (loaded.unregistered.length) {
+        console.error(`the market is not registered on ${loaded.unregistered.join(', ')}: those token orders are hidden`);
+      }
     } catch (e) {
       console.error(`token metadata failed: ${e.message}`);
     }
+    const kept = [];
     for (const order of cfg.orders) {
       try {
         const chain = await view(provider, cfg.contractId, 'get_order', orderArgs(contractApi, cfg.merchantId, order.order_id));
-        if (chain) { order.token = chain.token ?? null; order.expires_at_ms = chain.expires_at_ms ?? null; }
+        if (chain) {
+          const token = chain.token ?? null;
+          if (token && !tokens.some(t => t.id === token)) continue; // market not registered: hide it
+          order.token = token;
+          order.amount = chain.amount ?? null;
+          order.expires_at_ms = chain.expires_at_ms ?? null;
+        }
       } catch { /* the config is still usable without the per-order metadata */ }
+      kept.push(order);
     }
+    cfg.orders = kept;
   }
   cfg.contractApi = contractApi;
   cfg.tokens = tokens;

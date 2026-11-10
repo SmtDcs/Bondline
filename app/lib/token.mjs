@@ -25,6 +25,18 @@ export async function ftMetadata(provider, tokenId) {
   return { id: tokenId, symbol: meta.symbol, decimals: meta.decimals };
 }
 
+/** Load metadata for the allowed tokens and split out the ones where `contractId` has no storage. */
+export async function loadTokenConfig(provider, contractId, allowedTokens) {
+  const tokens = [];
+  const unregistered = [];
+  for (const tokenId of allowedTokens ?? []) {
+    const meta = await ftMetadata(provider, tokenId);
+    if ((await storageBalanceOf(provider, tokenId, contractId)) === null) unregistered.push(tokenId);
+    else tokens.push(meta);
+  }
+  return { tokens, unregistered };
+}
+
 /** NEP-145 storage balance, or null when the account is not registered on the token. */
 export async function storageBalanceOf(provider, tokenId, accountId) {
   checkTokenId(tokenId);

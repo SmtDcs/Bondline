@@ -55,6 +55,17 @@ if [ "$V2" = "1" ]; then
   TOKEN_REGISTRATION_DEPOSIT="${TOKEN_REGISTRATION_DEPOSIT:-0.01 NEAR}"
   NEAR_ARGS=(network-config testnet sign-with-legacy-keychain send)
 
+  # 0. the market must already be registered on the token (L1 does this once); stop with a clear
+  # message instead of failing later inside ft_transfer_call.
+  if [ "$DRY_RUN" != "1" ]; then
+    MARKET_ON_TOKEN=$(near contract call-function as-read-only "$TOKEN_ID" storage_balance_of \
+      json-args "{\"account_id\":\"$CONTRACT_ID\"}" network-config testnet now)
+    if [[ "$MARKET_ON_TOKEN" != *'"total"'* ]]; then
+      echo "the market $CONTRACT_ID is not registered on $TOKEN_ID: run its storage_deposit first (docs/runbook.md, L1)" >&2
+      exit 1
+    fi
+  fi
+
   # 1. the merchant's prepaid storage balance on the market (orders and receipts are charged to it)
   run near contract call-function as-transaction "$CONTRACT_ID" storage_deposit \
     json-args "{\"account_id\":\"$MERCHANT_ID\"}" prepaid-gas '30 Tgas' attached-deposit "$STORAGE_DEPOSIT" \
