@@ -456,8 +456,9 @@ Not done (honest list):
   reads `storage_balance_of(market)` and stops with a clear message, and the server drops a token
   order (and its token metadata) when the check fails, so the page hides it instead of showing it as
   NEAR. `loadTokenConfig` is the shared helper.
-- The web page was driven through its own module with a fake `document` (no browser was opened);
-  the real browser click-through is still the human item in `docs/runbook.md`.
+- At the time of this build the web page was driven through its own module with a fake `document` (no browser was opened). Later, on
+  2026-11-10, Claude Opus 5.5 opened live v2 mode in Chrome (`docs/screenshots/live-v2-*.png`, `docs/build-log.md` "Browser session"); a check by a human and the
+  `?offline=1` replay click-through are still open items in `docs/runbook.md`.
 - `storage_unregister`, full NEP-145 compliance, multiple bond tokens beyond the init allow-list and
   any owner rescue path for a stuck `paying` order are deliberately absent (sections 6, 7, 16).
 - `npm test` still does not run cargo (that predates this build); `npm run test:contract:v2` is the
@@ -521,7 +522,7 @@ operator's deploy report, not repeated by me.
 
 ### Deployed (L1 and the token)
 
-- **Token** `sm1110-tusdc.testnet` [chain: code hash `66d6fc0a1c29683a8802bda397e8448ead45c74df1d591cc5ddf2b6d213570c1`; `ft_metadata`: `Test USD Coin (testnet mock)`, symbol `tUSDC`, 6 decimals]. A mock. Deploy + init tx `2b3hMb4qHXo3XFan4y4gCG3zow5MEaQCzvg1eYrJgBDJ` [chain: success]. Owner-only mint; shop and alice hold 10000 tUSDC [chain: `ft_balance_of` = `10000000000` each], bob 0.
+- **Token** `sm1110-tusdc.testnet` [chain: code hash `66d6fc0a1c29683a8802bda397e8448ead45c74df1d591cc5ddf2b6d213570c1`; `ft_metadata`: `Test USD Coin (testnet mock)`, symbol `tUSDC`, 6 decimals]. A mock. Deploy + init tx `2b3hMb4qHXo3XFan4y4gCG3zow5MEaQCzvg1eYrJgBDJ` [chain: success]. Owner-only mint; shop and alice held 10000 tUSDC at deployment [chain: `ft_balance_of` = `10000000000` each], bob 0 (these balances moved during the live runs; the state read on 2026-11-11 is in `docs/runbook.md` and `docs/build-log.md`).
 - **Market** `v2.cbp-sm1110.testnet`. Created by `cbp-sm1110.testnet` after a 0.5 NEAR top-up from the shop (tx `CcwHujYu9zimDYV2yyvhvfGUDwfZktBVsSfW22PRdfez`), create tx `7w6riZo57TqQXaqSuY19aCkfCwxCKcmBL5f4A8c8CBVz`, funded 7 NEAR by the shop (tx `CbD75d7Ro1e4HmDFNrstxhXoZA31d8CxpvMisN8ug4z`), deploy + `new{owner, allowed_tokens [sm1110-tusdc.testnet], min_order_ttl_ms 120000}` tx `BY57K2VSfnuTg236uwVsa1frUJbyD2TyebYcFaJq1bA5` [chain: all four success]. `get_config` -> `{api:2, owner v2.cbp-sm1110.testnet, allowed_tokens [sm1110-tusdc.testnet], min_order_ttl_ms "120000", max_order_ttl_ms "31536000000", default_order_ttl_ms "2592000000"}` [chain]. On-chain `code_hash` = `399c5af66e90a5800658f86a25c29fa76c62018f7d77d40b47e139e71f9b08bd` = sha256 of `contract-v2/res/bot_promises_v2.wasm` (299448 bytes) [chain + local]. Balance about 7.2 NEAR, storage 300085 bytes [chain].
 - **Market registered on the token**: tx `9MfE4aApnDg6zH4XuTQoXEAuKm9D7Qqc8AFPFU3URnJn` [chain: success]; `storage_balance_of(market)` on the token = `{total: 1250000000000000000000, available: 0}` [chain].
 - **TEE signer on v2**: `add_signer` tx `B4GGMbPTthfEhztR5fXqN7iJFuZet9PCBADYwLeTtGDR` [chain: success]. `get_signers` has `5a0210f2…caff`, `provider_tee`, `z-ai/glm-5.3-flash`, attestation `520bedd1…6a65`, `expires_at_ms 1796035518568` (2026-11-30) [chain]. A first attempt failed because `add_signer` is not payable: attach `0 NEAR` (the command `npm run attest` prints already does; the runbook now says so).
@@ -658,7 +659,7 @@ A shop that withdraws almost its whole bond cannot register the next order (`ERR
 **Found by the live run (client, fixed with a test):** `record-transcript.mjs` called v2 `get_order` with `merchant: null`; it now needs `MERCHANT_ID`.
 New option `RECORD_SUFFIX` records a second v2 run beside the first.
 
-**Not done:** L4(b); `ERR_LIABILITY_ZERO` live; a `claim-failed` beat inside the replayed transcript; a real-browser check; measuring a real USDC token's gas.
+**Not done:** L4(b); `ERR_LIABILITY_ZERO` live; a `claim-failed` beat inside the replayed transcript; a real-browser check (not in this live run; Claude Opus 5.5 did one later the same day, see `docs/build-log.md`); measuring a real USDC token's gas.
 The market and the token still hold a full-access key each (F2 unchanged).
 
 ## 21. Final audit fixes in the contract (source only, state layout unchanged)

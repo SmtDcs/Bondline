@@ -33,3 +33,35 @@ Consequences, recorded so nobody re-deploys by accident:
 - Adding `contract/Cargo.lock` pins every crate version, so a rebuild on this machine selects the same
   dependencies; the output can still differ byte-wise because the build is not reproducibly compiled.
   Verify a rebuild by `cargo test` + a same-size/behaviour check, not by the hash alone.
+
+# Contract v2 (stablecoin market) and the mock token: what can and cannot be verified
+
+Added by the audit fix round (2026-11-11).
+
+| item | value |
+| --- | --- |
+| file | `contract-v2/res/bot_promises_v2.wasm` |
+| size / sha256 | 299151 bytes / `095bb43efde677c2fe531ddcdc4fb3554b9c1c35e897a8b6f23ae5908c9b9721` |
+| on-chain | `v2.cbp-sm1110.testnet` `view_account` `code_hash` `dXmpq5N8HcfdoGNmkVJnxpnXhEBEwBwKAj8Vbbn1EbA` (base58 of the sha256 above; read 2026-11-11) |
+| command | `npm run build:contract:v2` (= `cargo near build non-reproducible-wasm --no-abi`) |
+| rustc / cargo | 1.95.0 (`contract-v2/rust-toolchain.toml` pins channel 1.95.0, target wasm32-unknown-unknown) |
+| cargo-near | 0.23.0; near-sdk `=5.30.1` |
+| dependency lock | `contract-v2/Cargo.lock` (sha256 `4de23af74dc186f8ef25f06fdddba2ad7881b0f35fe0a07c8bc1892df9c56111`), committed |
+| deploy | in place redeploy tx `CbDQ6rL6GzTchuEE9GKqdGEHi8eUyxFKZkoJwJ51h3tC` (first build `399c5af6…08bd`, 299448 bytes, replaced) |
+
+v1 on chain: `cbp-sm1110.testnet` `code_hash` `EFQS8Avk5ujFyS8xUtZPUAFsdbb58Q47jJjhCe3JAd4C` = the v1 sha256 above.
+
+**What this does and does not prove.** Both builds use `non-reproducible-wasm`: rebuilding `contract/src` or `contract-v2/src` yourself will
+usually give a different hash. The honest statement is **the code deployed on testnet is the committed wasm file** (hash equality: the file, the
+sha256 here and the account's `code_hash` agree); it is **not** shown to be a byte-for-byte rebuild of the committed source. To tie behaviour to the
+source, run `cargo test` in each crate (16 tests for v1, 95 for v2) and compare against the live-run record (`fixtures/runs/v2-live-run.json`,
+`npm run verify:live-run`). Check the on-chain hash yourself:
+`curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"v2.cbp-sm1110.testnet"}}'`
+and compare `code_hash` (base58) with the sha256 above converted to base58, or with `shasum -a 256` of the file.
+
+**The mock token `sm1110-tusdc.testnet` has no source or wasm in this repository.** Its on-chain `code_hash` is
+`7vSigJRHoWcQp8LsYAWypgtVQJEFU4shQNoGQGYc79yr` = sha256 `66d6fc0a1c29683a8802bda397e8448ead45c74df1d591cc5ddf2b6d213570c1`, deployed by the operator (tx
+`2b3hMb4qHXo3XFan4y4gCG3zow5MEaQCzvg1eYrJgBDJ`). The repository does not name the upstream example it came from. So the claims "NEP-141 / NEP-145 / NEP-148
+compliant" and "owner-only mint" are the operator's description, checkable only by calling the token (`ft_metadata`, `get_owner`-style views) and by the behaviour
+recorded in the live run, not by reading its source. Every v2 tUSDC result (L2-L12) depends on that contract behaving as described; it is a throwaway mock
+that its own key holder can mint from and redeploy (see the README, Trust boundaries).
