@@ -670,7 +670,7 @@ fn a_third_party_can_fund_an_account() {
 }
 
 #[test]
-fn register_order_charges_exactly_the_measured_bytes() {
+fn register_order_charges_the_measured_bytes_plus_the_status_headroom() {
     let mut c = token_merchant();
     let avail_before = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
     ctx("shop.testnet", 1);
@@ -679,7 +679,8 @@ fn register_order_charges_exactly_the_measured_bytes() {
     let cost = (env::storage_usage() - before) as u128 * byte_cost();
     assert!(cost > 0);
     let avail_after = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
-    assert_eq!(avail_before - avail_after, cost);
+    // measured record + room for the longest later status ("claimed"/"expired" are 3 bytes longer than "open")
+    assert_eq!(avail_before - avail_after, cost + 3 * byte_cost());
 }
 
 #[test]
@@ -772,7 +773,7 @@ fn spam_loop_stops_when_the_storage_balance_runs_out() {
     ctx("shop.testnet", 1);
     let before = env::storage_usage();
     c.register_order("S0".into(), acc("alice.testnet"), U128(1000), 1000, Some(acc(TUSDC)), None);
-    let unit = (env::storage_usage() - before) as u128 * byte_cost();
+    let unit = (env::storage_usage() - before) as u128 * byte_cost() + 3 * byte_cost();
     let leftover = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
     ctx("shop.testnet", 1);
     c.storage_withdraw(Some(U128(leftover)));
@@ -790,7 +791,7 @@ fn spam_loop_stops_when_the_storage_balance_runs_out() {
         decreased += avail - c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
         growth += (env::storage_usage() - usage) as u128 * byte_cost();
     }
-    assert_eq!(decreased, growth);
+    assert_eq!(decreased, growth + 5 * 3 * byte_cost());
     assert_eq!(c.storage_balance_of(acc("shop.testnet")).unwrap().available.0, free - decreased);
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         register_order(&mut c, "shop.testnet", "S6", "alice.testnet", 1000, 1000, Some(TUSDC), None);
@@ -1508,4 +1509,94 @@ fn register_receipt_and_claim_stay_callable_with_a_zero_deposit() {
     assert!(pre.payout.0 > 0);
     ctx("alice.testnet", 0);
     drop(c.claim(acc("shop.testnet"), "A123".into(), b64(&vec["honest"], "response_b64")));
+}
+
+// ======================= audit fixes: contract-1 / contract-2 =======================
+
+#[test]
+fn signer_keys_are_canonical_so_revocation_works_with_any_spelling() {
+    let mut c = new_contract(vec![]);
+    let vec = v();
+    let bare = s(&vec["honest"], "signer_public_key_hex");
+    let prefixed = format!("0x{}", bare.to_uppercase());
+    ctx("owner.testnet", 1);
+    c.add_signer(prefixed.clone(), "provider_tee".into(), Some("m".into()), "00".repeat(32), U64(NOW_MS + DAY_MS));
+    // stored once, under the bare lowercase form; every spelling finds it
+    let all = c.get_signers();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].0, bare);
+    assert!(c.get_signer(bare.clone()).is_some());
+    assert!(c.get_signer(prefixed.clone()).is_some());
+    // adding the same key again in another spelling overwrites, never duplicates
+    ctx("owner.testnet", 1);
+    c.add_signer(bare.clone(), "provider_tee".into(), Some("m".into()), "00".repeat(32), U64(NOW_MS + 2 * DAY_MS));
+    assert_eq!(c.get_signers().len(), 1);
+    // revoking by the bare form removes it
+    ctx("owner.testnet", 1);
+    assert!(c.remove_signer(bare.clone()));
+    assert!(c.get_signer(prefixed).is_none());
+    assert!(c.get_signers().is_empty());
+}
+
+#[test]
+fn receipts_register_against_a_prefixed_signer_key_and_revocation_stops_them() {
+    let mut c = new_contract(vec![]);
+    let vec = v();
+    let bare = s(&vec["honest"], "signer_public_key_hex");
+    ctx("owner.testnet", 1);
+    c.add_signer(
+        format!("0x{}", bare),
+        "provider_tee".into(),
+        Some("z-ai/glm-5.3-flash".into()),
+        "00".repeat(32),
+        U64(NOW_MS + DAY_MS),
+    );
+    merchant(&mut c, "shop.testnet", 3 * NEAR, NEAR);
+    register_order(&mut c, "shop.testnet", "A123", "alice.testnet", 2 * NEAR, 3000, None, None);
+    let mut x = vec["honest"].clone();
+    x["signer_public_key_hex"] = Value::String(format!("0x{}", bare));
+    let r = register_receipt(&mut c, "shop.testnet", "A123", &x);
+    assert_eq!(r.signer_public_key_hex, bare, "the receipt records the canonical key");
+    ctx("owner.testnet", 1);
+    c.remove_signer(bare.clone());
+    register_order(&mut c, "shop.testnet", "A124", "alice.testnet", 2 * NEAR, 3000, None, None);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_receipt(&mut c, "shop.testnet", "A124", &vec["injection"]);
+    }));
+    assert!(r.is_err(), "a revoked signer must not register receipts");
+}
+
+#[test]
+fn removing_an_unknown_signer_panics_instead_of_returning_false() {
+    let mut c = new_contract(vec![]);
+    ctx("owner.testnet", 1);
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.remove_signer("ab".repeat(32)))), "ERR_UNKNOWN_SIGNER");
+}
+
+#[test]
+fn no_status_transition_grows_the_order_record_beyond_the_prepaid_headroom() {
+    // (testing_env! resets the mock's storage usage between ctx() calls, so compare the stored record itself)
+    let size = |c: &Contract, id: &str| near_sdk::borsh::to_vec(&c.get_order(acc("shop.testnet"), id.into()).unwrap()).unwrap().len();
+    let headroom = STATUS_HEADROOM_BYTES as usize;
+
+    // paid claim: open -> paying -> claimed
+    let mut c = setup();
+    let resp = s(&v()["honest"], "response_b64");
+    let open_len = size(&c, "A123");
+    let p = claim_and_callback(&mut c, "shop.testnet", "alice.testnet", "A123", &resp, true);
+    assert!(p.ok);
+    assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "claimed");
+    assert!(size(&c, "A123") - open_len <= headroom, "claim grew the record by more than the pre-paid headroom");
+
+    // expiry: open -> expired (same contract, second order that nobody claims)
+    register_order(&mut c, "shop.testnet", "X1", "alice.testnet", NEAR, 1000, None, Some(120_000));
+    let open_len = size(&c, "X1");
+    ctx_at("anyone.testnet", 0, NOW_MS + 200_000);
+    let o = c.release_expired(acc("shop.testnet"), "X1".into());
+    assert_eq!(o.status, "expired");
+    assert!(size(&c, "X1") - open_len <= headroom, "release_expired grew the record by more than the pre-paid headroom");
+
+    // and the headroom is exactly what the longest status needs (no silent over- or under-charge)
+    let longest = ["open", "paying", "claimed", "expired"].iter().map(|x| x.len()).max().unwrap();
+    assert_eq!(longest - "open".len(), headroom);
 }

@@ -93,6 +93,14 @@ test('handleClaim returns the recorded claim once, then ERR_ALREADY_CLAIMED', as
   );
 });
 
+test('client-3: reset() (a fresh page load) lets the claim beat play again', async () => {
+  const r = make();
+  const first = await r.handlers.handleClaim({ order_id: claimStep.order_id, response_b64: claimBytes });
+  await assert.rejects(() => r.handlers.handleClaim({ order_id: claimStep.order_id, response_b64: claimBytes }), (e) => e.message === 'ERR_ALREADY_CLAIMED');
+  r.reset();
+  assert.deepEqual(await r.handlers.handleClaim({ order_id: claimStep.order_id, response_b64: claimBytes }), first);
+});
+
 test('handleRegisterEdited loses with ERR_BAD_SIGNATURE and the recorded tx for the recorded request', async () => {
   const { handlers } = make();
   await assert.rejects(

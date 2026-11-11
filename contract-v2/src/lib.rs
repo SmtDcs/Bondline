@@ -179,6 +179,15 @@ fn log_plain(line: &str) {
     env::log_str(line);
 }
 
+/// The one canonical form of a signer key: no "0x", lowercase. Every insert / get / remove goes through it.
+fn canonical_pk(pk: &str) -> String {
+    pk.strip_prefix("0x").or_else(|| pk.strip_prefix("0X")).unwrap_or(pk).to_lowercase()
+}
+
+/// An order is stored as "open" (4 bytes) and later rewritten as "paying" / "claimed" / "expired" (up to 7 bytes).
+/// register_order charges these extra bytes up front, so no later transition grows state that nobody paid for.
+const STATUS_HEADROOM_BYTES: u128 = 3;
+
 fn storage_cost_since(before: u64) -> u128 {
     let after = env::storage_usage();
     (after.saturating_sub(before) as u128) * env::storage_byte_cost().as_yoctonear()
@@ -243,7 +252,7 @@ impl Contract {
     ) -> SignerInfo {
         require_one_yocto();
         require!(env::predecessor_account_id() == self.owner, "ERR_NOT_OWNER");
-        let pk = public_key_hex.to_lowercase();
+        let pk = canonical_pk(&public_key_hex);
         parse::decode_hex_fixed::<32>(&pk).unwrap_or_else(|e| fail(e));
         match (kind.as_str(), &model_id) {
             (KIND_PROVIDER_TEE, Some(m)) if !m.is_empty() => {}
@@ -263,12 +272,10 @@ impl Contract {
     pub fn remove_signer(&mut self, public_key_hex: String) -> bool {
         require_one_yocto();
         require!(env::predecessor_account_id() == self.owner, "ERR_NOT_OWNER");
-        let pk = public_key_hex.to_lowercase();
-        let removed = self.signers.remove(&pk).is_some();
-        if removed {
-            emit(None, "signer_removed", json!({"public_key_hex": pk}));
-        }
-        removed
+        let pk = canonical_pk(&public_key_hex);
+        require!(self.signers.remove(&pk).is_some(), "ERR_UNKNOWN_SIGNER");
+        emit(None, "signer_removed", json!({"public_key_hex": pk}));
+        true
     }
 
     // ---------------- storage balance (own implementation, shaped like NEP-145) ----------------
@@ -507,7 +514,7 @@ impl Contract {
         let before = env::storage_usage();
         self.orders.insert(key.clone(), order.clone());
         self.orders.flush();
-        let cost = storage_cost_since(before);
+        let cost = storage_cost_since(before) + STATUS_HEADROOM_BYTES * env::storage_byte_cost().as_yoctonear();
         if !self.charge_storage(&merchant, cost) {
             self.orders.remove(&key);
             self.orders.flush();
@@ -562,7 +569,7 @@ impl Contract {
         let order = self.orders.get(&key).cloned().unwrap_or_else(|| fail("ERR_NO_ORDER"));
         require!(order.status == "open", "ERR_ORDER_NOT_OPEN");
         require!(env::block_timestamp_ms() < order.expires_at_ms.0, "ERR_ORDER_EXPIRED");
-        let pk_hex = signer_public_key_hex.to_lowercase();
+        let pk_hex = canonical_pk(&signer_public_key_hex);
         let signer = self.signers.get(&pk_hex).cloned().unwrap_or_else(|| fail("ERR_UNKNOWN_SIGNER"));
         require!(env::block_timestamp_ms() < signer.expires_at_ms.0, "ERR_SIGNER_EXPIRED");
 
@@ -738,7 +745,7 @@ impl Contract {
         self.owner.clone()
     }
     pub fn get_signer(&self, public_key_hex: String) -> Option<SignerInfo> {
-        self.signers.get(&public_key_hex.to_lowercase()).cloned()
+        self.signers.get(&canonical_pk(&public_key_hex)).cloned()
     }
     pub fn get_signers(&self) -> Vec<(String, SignerInfo)> {
         self.signers.iter().map(|(k, v)| (k.clone(), v.clone())).collect()

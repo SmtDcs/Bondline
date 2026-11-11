@@ -146,5 +146,12 @@ export function makeReplay(transcriptPath = DEFAULT_TRANSCRIPT) {
     throw Object.assign(new Error('ERR_BAD_SIGNATURE'), { status: 400, txHash: step.tx ?? null });
   }
 
-  return { handlers: { handleChat, handleClaim, handleRegisterEdited }, publicConfig };
+  /** A fresh page load starts the story again: forget which claims / failures were already played.
+   *  (Without this the server remembered claims across reloads and the claim beat could never be replayed.) */
+  function reset() {
+    claimed.clear();
+    replayedFailure.clear();
+  }
+
+  return { handlers: { handleChat, handleClaim, handleRegisterEdited }, publicConfig, reset };
 }

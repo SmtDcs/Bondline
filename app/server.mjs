@@ -15,12 +15,12 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.static('web'));
 app.use('/fixtures', express.static('fixtures')); // replay files are public demo data
 
-let handlers, cfgPublic;
+let handlers, cfgPublic, resetSession = () => {};
 if (MODE === 'replay') {
   const { makeReplay, DEFAULT_TRANSCRIPT } = await import('./lib/replay.mjs'); // task T19
   // REPLAY_FILE=fixtures/replay/transcript-v2.json replays the stablecoin recording (file must be under fixtures/replay/).
   const r = makeReplay(process.env.REPLAY_FILE || DEFAULT_TRANSCRIPT);
-  handlers = r.handlers; cfgPublic = r.publicConfig;
+  handlers = r.handlers; cfgPublic = r.publicConfig; resetSession = r.reset;
 } else {
   const cfg = loadConfig();
   // v2 detection is one get_config at startup (app/lib/live-config.mjs). MethodNotFound means v1; any
@@ -34,7 +34,9 @@ if (MODE === 'replay') {
   cfgPublic = publicConfig(cfg);
 }
 
-app.get('/api/config', (_req, res) => res.json(cfgPublic));
+// The page reads /api/config on every load. In replay mode that is also the "new session" signal: the server
+// forgets earlier claims, so reloading the page lets the claim beat play again (live mode: no-op).
+app.get('/api/config', (_req, res) => { resetSession(); res.json(cfgPublic); });
 app.post('/api/chat', wrap(handlers.handleChat));
 app.post('/api/demo/claim', wrap(handlers.handleClaim));
 app.post('/api/demo/register-edited', wrap(handlers.handleRegisterEdited));
@@ -47,4 +49,4 @@ app.get('/api/bundles/:id', (req, res) => {
   res.status(404).json({ error: 'NOT_FOUND' });
 });
 
-app.listen(PORT, '127.0.0.1', () => console.log(`listening on http://127.0.0.1:${PORT} mode=${MODE}`));
+export const server = app.listen(PORT, '127.0.0.1', () => console.log(`listening on http://127.0.0.1:${PORT} mode=${MODE}`));
