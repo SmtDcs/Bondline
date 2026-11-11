@@ -23,7 +23,7 @@ All steps and expected output: [Judge path](#judge-path-do-x-see-y).
 - **7 real NEAR AI receipts** verified offline, plus 3 deliberately edited ones that are correctly rejected.
 - **About 7.7 Tgas** for a whole tUSDC claim, measured (`docs/DETAILS.md`).
 
-**Tracks:** AI Security & Defense (`security`, primary), Real-World Money (`realworld`), Agent Economy (a bot whose promises are backed by collateral). Network: NEAR **testnet** only.
+**Tracks (proposed; the team confirms at submission):** AI Security & Defense (`security`, primary), Real-World Money (`realworld`), possibly Agent Economy. Network: NEAR **testnet** only.
 
 ## What NEAR does here
 - The contract `v2.cbp-sm1110.testnet` holds the shop's bond and runs `env::ed25519_verify` on the NEAR AI TEE signature over `z-ai/glm-5.3-flash:sha256(request bytes):sha256(response bytes)` (`register_receipt`). The v1 contract has the same check.
@@ -88,7 +88,7 @@ The recorded v1 run in full (all transaction links, including the A124-11 regist
 
 
 ## Limits and trust
-Honest limits come right after the demo path. Nothing below was removed from the earlier README; version history moved to [`docs/HISTORY.md`](docs/HISTORY.md).
+Honest limits come right after the demo path. Limits and disclosures from the earlier README are kept below (the mock-token limit now also links the token's source repo); version history moved to [`docs/HISTORY.md`](docs/HISTORY.md).
 
 > **Open human items (not done, not faked):** no demo video, no X post, no `hackathon-submission` tag, and this repository and the ZeroInit repository are not yet public. The tag and repository links in this README therefore do not open anything for a judge yet. The list, with the hackathon rules behind it: [`docs/SUBMISSION.md`](docs/SUBMISSION.md). Deadline 2026-11-14T23:59Z.
 
@@ -125,7 +125,7 @@ curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d 
 - **Truncated replies** (`finish_reason: length`) are not detected: a token cut inside the `bps` digits would be registered with the smaller value. The shopper can decline to claim; the merchant is never overcharged.
 - **Not private:** a claim puts the reply bytes on chain (the shopper chooses to claim), so a claimed conversation is public.
 - **Money methods need a full-access key (v2):** `register_order`, `withdraw_bond`, `storage_withdraw`, `add_signer` and `remove_signer` require exactly 1 yoctoNEAR (`ERR_ONE_YOCTO`), so a function-call key cannot call them (live in L1; the operator redeployed the market with this check, tx `CbDQ6rL6GzTchuEE9GKqdGEHi8eUyxFKZkoJwJ51h3tC`). `register_receipt` and `claim` stay callable by function-call keys.
-- **Mock token:** `sm1110-tusdc.testnet` is a testnet mock. Its source is **not in this repository**, so "NEP-141/145/148, owner-only mint" cannot be checked from this repo alone. The mock token source is published at https://github.com/SmtDcs/test-usdc (link given by the project owner); this repository cannot prove that the deployed token runs exactly that code. Both market contracts are built with `cargo near build non-reproducible-wasm`: the committed wasm files equal the on-chain code hashes (v1 `c4d88ead…` = `EFQS8Avk…`, v2 `095bb43e…` = `dXmpq5N8…`), but a rebuild from source will not necessarily give the same hash. Hashes, build environment and what they do and do not prove: `docs/wasm-sha256.txt`.
+- **Mock token, unreviewable from this repo:** `sm1110-tusdc.testnet` is a testnet mock; its source is **not in this repository**, so "NEP-141/145/148, owner-only mint" cannot be checked from this repo alone. Its source is in https://github.com/SmtDcs/test-usdc (private until submission); this repository cannot prove that the deployed token runs exactly that code. Both market contracts are built with `cargo near build non-reproducible-wasm`: the committed wasm files equal the on-chain code hashes (v1 `c4d88ead…` = `EFQS8Avk…`, v2 `8f4abd25…` = `AeMQDGx2…`, the audit-fixed build redeployed in place on 2026-11-11), but a rebuild from source will not necessarily give the same hash. Hashes, build environment and what they do and do not prove: `docs/wasm-sha256.txt`.
 - No wallet login for the shopper (the demo keeps a claim-only function-call key on the laptop and labels it); one token kind (`refund`), no discounts, replacements or disputes; the NEP-141 allow-list is fixed at init.
 - **TEE signer expiry:** the signer `5a0210f2…caff` was renewed on 2026-11-10 and expires on **2026-11-30 10:45 UTC**, after the judging window; receipts already on chain stay valid, new `register_receipt` calls would fail with `ERR_SIGNER_EXPIRED`. Renewal steps: `docs/DETAILS.md`.
 - v1 limitations (no storage deposit, global order-id namespace, no expiry) are fixed in v2 and the fixes were run on testnet (L10-L12): the table is in `docs/DETAILS.md`. The v1 contract itself is unchanged and still has them.
