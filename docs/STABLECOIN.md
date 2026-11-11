@@ -1,6 +1,6 @@
 # Contract v2: stablecoin (NEP-141) support - design
 
-Status: **implemented in `contract-v2/` and the client, deployed on testnet** as `v2.cbp-sm1110.testnet` with the mock token `sm1110-tusdc.testnet` (2026-11-10; section 19), redeployed in place with the 1-yocto fix (section 21), and **the live flows L1-L14 were run and recorded on 2026-11-10** (section 21; L4(b) was not run). The gas constants were measured and kept (section 7 and 21).
+Status: **implemented in `contract-v2/` and the client, deployed on testnet** as `v2.cbp-sm1110.testnet` with the mock token `sm1110-tusdc.testnet` (2026-11-10; section 19), redeployed in place with the 1-yocto fix (section 21) and again with the audit fixes (section 22, 2026-11-11), and **the live flows L1-L14 were run and recorded on 2026-11-10** against the 1-yocto build (section 21; L4(b) was not run). **A short re-check on the audit-fixed build** (code hash, signer keys, a fresh tUSDC claim and its failure cases) was run on 2026-11-11 (section 22); the other flows were not re-run on it. The gas constants were measured and kept (section 7 and 21).
 
 Written by Claude Sonnet 5.5 (design). The build is meant for DeepSeek V4.1 Flash, with Claude Sonnet 5.5 reviewing and fixing, and Claude Opus 5.5 doing the final review and the testnet deploys as operator. `docs/plan/` is the locked original plan and is not edited; this file is the interface spec for v2, and the deviations from `docs/plan/INTERFACES.md` are listed in section 13 (to be copied into `docs/CHANGE-REQUESTS.md` as CR-4 when the build starts).
 
@@ -666,5 +666,32 @@ The market and the token still hold a full-access key each (F2 unchanged).
 
 - **contract-1, signer keys are canonical.** `add_signer`, `remove_signer`, `get_signer` and `register_receipt` all go through one function that strips an optional `0x` and lowercases, so a key has exactly one spelling in the registry (`get_signers` shows bare lowercase hex) and revoking by any spelling works. `remove_signer` of a key that is not registered now panics with `ERR_UNKNOWN_SIGNER` (it used to return `false` and leave the transaction successful). It still returns `bool` (always `true`), so the ABI is unchanged. The deployed signer was added as bare hex, so nothing already stored changes. Tests: `signer_keys_are_canonical_so_revocation_works_with_any_spelling`, `receipts_register_against_a_prefixed_signer_key_and_revocation_stops_them`, `removing_an_unknown_signer_panics_instead_of_returning_false`.
 - **contract-2, the order record's later status growth is pre-paid.** `Order.status` is a Borsh `String`; `claim` (`paying`), `on_claim_paid` (`claimed`) and `release_expired` (`expired`) make the record up to 3 bytes longer than the `open` record that `register_order` measured, and none of them charges anyone. `register_order` now charges the measured bytes **plus 3 bytes** (`STATUS_HEADROOM_BYTES`, 3 x 10^19 yocto), so the shop's storage balance already covers the longest status and the contract's own balance pays nothing for an order's life cycle. Every order costs 3 x 10^19 yocto (0.00003 NEAR) more than the 246 bytes measured in live run L11. Orders registered before the redeploy keep the old charge (3 bytes unpaid each; testnet demo orders only). I kept the `String` instead of a `u8` enum on purpose: a different Borsh layout would make every stored order unreadable after an in-place redeploy. Tests: `register_order_charges_the_measured_bytes_plus_the_status_headroom` and `spam_loop_stops_when_the_storage_balance_runs_out` (charge = growth + headroom), `no_status_transition_grows_the_order_record_beyond_the_prepaid_headroom` (claim and expiry grow the stored record by at most the headroom; the headroom is exactly the longest status minus `open`).
-- **State layout: unchanged.** No struct, field, type or storage key changed, so `v2.cbp-sm1110.testnet` can be redeployed in place. The committed `contract-v2/res/bot_promises_v2.wasm` and `docs/wasm-sha256.txt` still describe the build before these two fixes; rebuild, record the new hash and redeploy before relying on them.
+- **State layout: unchanged.** No struct, field, type or storage key changed, so `v2.cbp-sm1110.testnet` can be redeployed in place. *(When this was written the committed wasm was still the build before these two fixes; it is now the audit-fixed build and it is deployed, see section 22.)*
 - **client-3, replay server reload.** The replay server (`MODE=replay`) kept its "already claimed" set for the life of the process, so after one claim a page reload could not replay the claim beat. Every page load reads `GET /api/config`; in replay mode that now starts a fresh session (`reset()` in `app/lib/replay.mjs`). Live mode is unaffected. Tests: `app/test/replay.test.mjs` (`client-3: reset()...`) and `app/test/replay-server-reload.test.mjs` (real server over HTTP).
+
+## 22. Redeploy of the audit-fixed build and the live re-check (2026-11-11; deploy by the operator, Claude Opus 5.5; re-check by Claude Sonnet 5.5)
+
+**Redeploy.** The operator redeployed `v2.cbp-sm1110.testnet` in place with the audit fixes of section 21 (canonical signer keys, status headroom): tx
+`FRTpSjjFbJ13JWeG7ASC17e3zBeHVagjSFL92JqMp63M`, `contract-v2/res/bot_promises_v2.wasm`, 299447 bytes, sha256
+`8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8`; state kept (api 2, allow-list, TEE signer, bonds). The account's `code_hash` read from the RPC is
+`AeMQDGx2PUj5LXwFHrKZZR2wGjxrExLHZEcEJvbMhMe7`, the base58 of that sha256; the re-check script compared them: equal. It replaced the build with sha256
+`095bb43e…9721` (section 21 above). Deployed code and the committed wasm are the same file again (`docs/wasm-sha256.txt`).
+`cargo test` on 2026-11-11: `contract-v2` 127 passed, `contract` 16 passed.
+
+**Re-check.** `LIVE_RUN_ROUND=2026-11-11-recheck REDEPLOY_TX=<tx> NODE_USE_ENV_PROXY=1 node app/scripts/live-v2.mjs L1r L6r L6s`, signed with near-api-js
+and the `.env` keys; the chat -> receipt -> claim step went through the headless app (real NEAR AI reply, relayer key, alice's claim-only key). 10 transactions
+(5 deliberate failures) and 24 checks are appended to `fixtures/runs/v2-live-run.json`, tagged `round: 2026-11-11-recheck` and listed under `rechecks`
+(the 2026-11-10 records are untouched). `verify-live-run` replays all 91: 91/91 match.
+
+| Step | Result (tx hashes: `docs/build-log.md`) |
+| --- | --- |
+| L1r | code hash = sha256 of the file; api 2, allow-list and TEE signer kept; `add_signer` with the same key spelled `0x` + UPPER CASE succeeds and leaves **one** record under the bare lower-case key (contract-1); `remove_signer` of a key that is not registered fails `ERR_UNKNOWN_SIGNER` and the list is unchanged (contract-1); `register_order` with 0 deposit still `ERR_ONE_YOCTO` |
+| L6r | fresh order `R611-21` (20 tUSDC): honest reply `bps=2000`; the edited reply claim fails `ERR_NO_RECEIPT_FOR_BYTES`, registering it `ERR_BAD_SIGNATURE`; the honest claim pays `4000000` tUSDC (alice +4000000, bond -4000000, reserved -6000000, paid_out +4000000, order `claimed`, one status growth of at most the 3 prepaid bytes); a second claim `ERR_ALREADY_CLAIMED` |
+| L6s | fresh order `T6-21` with a 5-character id: the shop's storage balance fell by exactly **249** bytes x 10^19 yocto. Live run L11 charged 246 for the same id length before the redeploy, so the 3-byte status headroom is live (contract-2) |
+
+**A wrong expectation of mine, kept in the record.** For `R611-21` my script expected 249 bytes and recorded a FAIL: the shop was charged 253. The contract was right: the id has 7
+characters instead of 5 and is stored twice (storage key and record), so 246 + 4 + 3 = 253. The recorded check was replaced with the corrected expectation (a note in the JSON
+says so), the transaction stays as it happened, and L6s measured the 249 case with a 5-character id.
+
+**Not re-run on the new build:** L2-L5, L7-L13 and the remaining failure paths (unregistered receiver, withdraw, expiry, namespace); `release_expired` and the status growth of an expired order
+are covered by the unit tests only. The market and the token still hold a full-access key each (F2 unchanged).

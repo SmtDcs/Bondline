@@ -116,6 +116,23 @@ test('RunBook writes after every append and records the check result it computed
   assert.equal(new RunBook(f, { type: 'ignored' }).data.txs.length, 1);
 });
 
+test('RunBook with a round tags every tx and check it records, and not the ones before', () => {
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'runbook-')), 'run.json');
+  const book = new RunBook(f, { type: 't' });
+  const quiet = console.log; console.log = () => {};
+  try {
+    book.tx({ tx_hash: 'A', ok: true });
+    book.check('L1', 'before', '1', '1');
+    book.round = '2026-11-11-recheck';
+    book.tx({ tx_hash: 'B', ok: false });
+    book.check('L1r', 'after', '1', '2');
+  } finally { console.log = quiet; }
+  const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+  assert.deepEqual(d.txs.map(t => t.round), [undefined, '2026-11-11-recheck']);
+  assert.deepEqual(d.checks.map(c => c.round), [undefined, '2026-11-11-recheck']);
+  assert.equal(d.checks[1].pass, false);
+});
+
 test('shouldSkip: a one-time step is skipped when its condition says it is done', async () => {
   const present = async () => ({ total: '1' });
   const absent = async () => null;

@@ -4846,6 +4846,560 @@
         "order_id": "A123-22",
         "response_b64": "<reply bytes>"
       }
+    },
+    {
+      "step": "L1r",
+      "label": "add_signer with the key spelled 0x + UPPER CASE (same key, 1 yoctoNEAR)",
+      "signer": "v2.cbp-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "add_signer",
+      "args": {
+        "public_key_hex": "0x5A0210F2442C79355784F9DE021985429561DA5BACC3A4424B01AC52B7E0CAFF",
+        "kind": "provider_tee",
+        "model_id": "z-ai/glm-5.3-flash",
+        "attestation_sha256": "520bedd1a170147cf13b84ad168440c1db011060fc525da1a434f76e6c126a65",
+        "expires_at_ms": "1796035518568"
+      },
+      "deposit_yocto": "1",
+      "prepaid_tgas": 30,
+      "at": "2026-11-11T09:54:36.680Z",
+      "tx_hash": "4iGCU7Lmbrxd4vzsnwiNHTcwt8MFqissdkHCqKAFZiVx",
+      "explorer": "https://testnet.nearblocks.io/txns/4iGCU7Lmbrxd4vzsnwiNHTcwt8MFqissdkHCqKAFZiVx",
+      "ok": true,
+      "error": null,
+      "value": {
+        "kind": "provider_tee",
+        "model_id": "z-ai/glm-5.3-flash",
+        "attestation_sha256": "520bedd1a170147cf13b84ad168440c1db011060fc525da1a434f76e6c126a65",
+        "added_at_ms": "1794390877348",
+        "expires_at_ms": "1796035518568"
+      },
+      "gas_burnt_total": "2440336171834",
+      "gas_burnt_tx": "308665438114",
+      "receipts": [
+        {
+          "receipt_id": "3NUznH6ArLMt57HEQS4FzsP6eCdnFDWnTtAZUwAvWRzP",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": null,
+          "method": null,
+          "gas_burnt": "1908488171220",
+          "status": "success",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"signer_added\",\"data\":[{\"public_key_hex\":\"5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff\",\"kind\":\"provider_tee\",\"model_id\":\"z-ai/glm-5.3-flash\",\"expires_at_ms\":\"1796035518568\",\"token\":null}]}"
+          ]
+        },
+        {
+          "receipt_id": "9t7VEBmtkauhztFwiewUTox5AjuGu5zTmfaDwyTy1EQh",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"signer_added\",\"data\":[{\"public_key_hex\":\"5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff\",\"kind\":\"provider_tee\",\"model_id\":\"z-ai/glm-5.3-flash\",\"expires_at_ms\":\"1796035518568\",\"token\":null}]}"
+      ],
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "label": "remove_signer of a key that is not registered (must fail)",
+      "signer": "v2.cbp-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "remove_signer",
+      "args": {
+        "public_key_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "deposit_yocto": "1",
+      "prepaid_tgas": 30,
+      "at": "2026-11-11T09:54:40.322Z",
+      "tx_hash": "AFSyLsxCMyhq9UTZkcQRu1DczJdd7qMgmYLR3Yrgm1qy",
+      "explorer": "https://testnet.nearblocks.io/txns/AFSyLsxCMyhq9UTZkcQRu1DczJdd7qMgmYLR3Yrgm1qy",
+      "ok": false,
+      "error": "ERR_UNKNOWN_SIGNER",
+      "gas_burnt_total": "2176148369953",
+      "gas_burnt_tx": "308278621532",
+      "receipts": [
+        {
+          "receipt_id": "7XKX4SFYy4o1fX8DmifRdoEKP4yaN2gwodiXdj8NBGu3",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": null,
+          "method": null,
+          "gas_burnt": "1421504623421",
+          "status": "failure",
+          "failure": "ERR_UNKNOWN_SIGNER",
+          "logs": []
+        },
+        {
+          "receipt_id": "9SYP9MevZXJkQ43rxy6AiMZcefeBWy5zMVvaYTnkyBso",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        },
+        {
+          "receipt_id": "FhdSVgfLPJEXr5WEqzDV6Qvu9PtYLcei3YKR5BZbT8yg",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [],
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "label": "register_order with 0 deposit (must fail)",
+      "signer": "cbp-shop-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "register_order",
+      "args": {
+        "order_id": "ZERO-DEP-R",
+        "buyer": "cbp-alice-sm1110.testnet",
+        "amount": "1000000",
+        "max_bps": 3000,
+        "token": "sm1110-tusdc.testnet",
+        "ttl_ms": "1800000"
+      },
+      "deposit_yocto": "0",
+      "prepaid_tgas": 30,
+      "at": "2026-11-11T09:54:43.722Z",
+      "tx_hash": "4basaZ6ASo3tGTwR9gHCZ4PnSizEHUPpQ1vD1S7eHeHm",
+      "explorer": "https://testnet.nearblocks.io/txns/4basaZ6ASo3tGTwR9gHCZ4PnSizEHUPpQ1vD1S7eHeHm",
+      "ok": false,
+      "error": "ERR_ONE_YOCTO",
+      "gas_burnt_total": "1876024258147",
+      "gas_burnt_tx": "315593526970",
+      "receipts": [
+        {
+          "receipt_id": "AUBvcuMNLd1SFK5NfL8bqPS6sF2UqvZVgoCSUQXuyvTc",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "cbp-shop-sm1110.testnet",
+          "method": "register_order",
+          "gas_burnt": "1337248168677",
+          "status": "failure",
+          "failure": "ERR_ONE_YOCTO",
+          "logs": []
+        },
+        {
+          "receipt_id": "GGGhy8gvE3KfZc26ZvMenEVLwMMpdSNXaYUaxzqWbPCq",
+          "executor": "cbp-shop-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [],
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "label": "register_order R611-21",
+      "signer": "cbp-shop-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "register_order",
+      "args": {
+        "order_id": "R611-21",
+        "buyer": "cbp-alice-sm1110.testnet",
+        "amount": "20000000",
+        "max_bps": 3000,
+        "token": "sm1110-tusdc.testnet",
+        "ttl_ms": "1800000"
+      },
+      "deposit_yocto": "1",
+      "prepaid_tgas": 30,
+      "at": "2026-11-11T09:54:47.619Z",
+      "tx_hash": "Ab5dDhYHVxpH9h4swN1V4AZ18cxCH3rPKNbbAGwWe2kL",
+      "explorer": "https://testnet.nearblocks.io/txns/Ab5dDhYHVxpH9h4swN1V4AZ18cxCH3rPKNbbAGwWe2kL",
+      "ok": true,
+      "error": null,
+      "value": {
+        "order_id": "R611-21",
+        "merchant": "cbp-shop-sm1110.testnet",
+        "buyer": "cbp-alice-sm1110.testnet",
+        "amount": "20000000",
+        "max_bps": 3000,
+        "liability": "6000000",
+        "created_at_ms": "1794390888370",
+        "status": "open",
+        "paid": "0",
+        "paid_bps": 0,
+        "receipt_count": 0,
+        "token": "sm1110-tusdc.testnet",
+        "expires_at_ms": "1794392688370"
+      },
+      "gas_burnt_total": "2876264700802",
+      "gas_burnt_tx": "315498159540",
+      "receipts": [
+        {
+          "receipt_id": "63nuPA6sveoQsvYqU6fZbk5x65roP4QBa2TztGniVyU9",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "cbp-shop-sm1110.testnet",
+          "method": "register_order",
+          "gas_burnt": "2337583978762",
+          "status": "success",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"order_registered\",\"data\":[{\"order_id\":\"R611-21\",\"merchant\":\"cbp-shop-sm1110.testnet\",\"buyer\":\"cbp-alice-sm1110.testnet\",\"amount\":\"20000000\",\"max_bps\":3000,\"liability\":\"6000000\",\"expires_at_ms\":\"1794392688370\",\"token\":\"sm1110-tusdc.testnet\"}]}"
+          ]
+        },
+        {
+          "receipt_id": "3GMyqEsCMo1RzXLH6EthPJuDm7zxmgKRzpwHJ24em6Va",
+          "executor": "cbp-shop-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"order_registered\",\"data\":[{\"order_id\":\"R611-21\",\"merchant\":\"cbp-shop-sm1110.testnet\",\"buyer\":\"cbp-alice-sm1110.testnet\",\"amount\":\"20000000\",\"max_bps\":3000,\"liability\":\"6000000\",\"expires_at_ms\":\"1794392688370\",\"token\":\"sm1110-tusdc.testnet\"}]}"
+      ],
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "tx_hash": "2MRwMFEKYW8gNbqbPi724dePDEZ3iD1YFrquLCQzmCFG",
+      "explorer": "https://testnet.nearblocks.io/txns/2MRwMFEKYW8gNbqbPi724dePDEZ3iD1YFrquLCQzmCFG",
+      "signer": "cbp-shop-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "register_receipt",
+      "ok": true,
+      "error": null,
+      "value": {
+        "order_id": "R611-21",
+        "merchant": "cbp-shop-sm1110.testnet",
+        "signer_public_key_hex": "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff",
+        "signature_kind": "provider_tee",
+        "model_id": "z-ai/glm-5.3-flash",
+        "signed_text": "z-ai/glm-5.3-flash:54f42f97c5beea84570dab8f43252c53b7bcb4459f7cfbfc693d21c414c122c9:d69c8ca973a7c5d3f1068d891f1141e4bf7f5f600a94fae5a7d156a900d86bec",
+        "signature_hex": "0942e0e5fd693ee8ee2b886376951e9bab4e756d546964d29954a3ff141322aed7613e07118cce1ab7945225d155730de2534aef4ac3e8fbbe44cba529f58503",
+        "request_hash": "54f42f97c5beea84570dab8f43252c53b7bcb4459f7cfbfc693d21c414c122c9",
+        "response_hash": "d69c8ca973a7c5d3f1068d891f1141e4bf7f5f600a94fae5a7d156a900d86bec",
+        "registered_at_ms": "1794390895115",
+        "block_height": "277199494",
+        "token": "sm1110-tusdc.testnet",
+        "order_amount": "20000000"
+      },
+      "gas_burnt_total": "3403537896777",
+      "gas_burnt_tx": "329088018315",
+      "receipts": [
+        {
+          "receipt_id": "D5QDKUxvwyjr5bhJf2YCcRGd2ib6A82RbvtLcg1cWesP",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "cbp-shop-sm1110.testnet",
+          "method": "register_receipt",
+          "gas_burnt": "2851267315962",
+          "status": "success",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"receipt_registered\",\"data\":[{\"order_id\":\"R611-21\",\"merchant\":\"cbp-shop-sm1110.testnet\",\"response_hash\":\"d69c8ca973a7c5d3f1068d891f1141e4bf7f5f600a94fae5a7d156a900d86bec\",\"request_hash\":\"54f42f97c5beea84570dab8f43252c53b7bcb4459f7cfbfc693d21c414c122c9\",\"signer_public_key_hex\":\"5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff\",\"signature_kind\":\"provider_tee\",\"order_amount\":\"20000000\",\"token\":\"sm1110-tusdc.testnet\"}]}"
+          ]
+        },
+        {
+          "receipt_id": "CpTxWaJdhv9UHqKGYrBHqugNzTRD6FfwPsRk1vm6y4m4",
+          "executor": "cbp-shop-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"receipt_registered\",\"data\":[{\"order_id\":\"R611-21\",\"merchant\":\"cbp-shop-sm1110.testnet\",\"response_hash\":\"d69c8ca973a7c5d3f1068d891f1141e4bf7f5f600a94fae5a7d156a900d86bec\",\"request_hash\":\"54f42f97c5beea84570dab8f43252c53b7bcb4459f7cfbfc693d21c414c122c9\",\"signer_public_key_hex\":\"5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff\",\"signature_kind\":\"provider_tee\",\"order_amount\":\"20000000\",\"token\":\"sm1110-tusdc.testnet\"}]}"
+      ],
+      "step": "L6r",
+      "label": "register_receipt R611-21 (via app, relayer key)",
+      "args": {
+        "order_id": "R611-21"
+      },
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "tx_hash": "Eec3Qyhvzcvpr66vvNC4pf8QxVBiqKkZYEZ9PtkF9dfq",
+      "explorer": "https://testnet.nearblocks.io/txns/Eec3Qyhvzcvpr66vvNC4pf8QxVBiqKkZYEZ9PtkF9dfq",
+      "signer": "cbp-alice-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "claim",
+      "ok": false,
+      "error": "ERR_NO_RECEIPT_FOR_BYTES",
+      "gas_burnt_total": "2162257890713",
+      "gas_burnt_tx": "348972127470",
+      "receipts": [
+        {
+          "receipt_id": "DTHPPnvN5zDSgvTjTBHSHnR2ecTWffN4YqezjcaUpFLj",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "cbp-alice-sm1110.testnet",
+          "method": "claim",
+          "gas_burnt": "1590103200743",
+          "status": "failure",
+          "failure": "ERR_NO_RECEIPT_FOR_BYTES",
+          "logs": []
+        },
+        {
+          "receipt_id": "Gk99xA626ZMXEj8vxM93NoFhevC3kj5Ayt1Z1FkJYL2y",
+          "executor": "cbp-alice-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [],
+      "step": "L6r",
+      "label": "claim R611-21 with the reply edited 2000->3000 (via app, must fail)",
+      "args": {
+        "merchant": "cbp-shop-sm1110.testnet",
+        "order_id": "R611-21",
+        "response_b64": "<reply bytes>"
+      },
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "tx_hash": "69vTH7J3kWoUSYYQqc5BZS4LgyXiu2CEdHiPjdKLe7mM",
+      "explorer": "https://testnet.nearblocks.io/txns/69vTH7J3kWoUSYYQqc5BZS4LgyXiu2CEdHiPjdKLe7mM",
+      "signer": "cbp-shop-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "register_receipt",
+      "ok": false,
+      "error": "ERR_BAD_SIGNATURE",
+      "gas_burnt_total": "2349212260369",
+      "gas_burnt_tx": "329088018315",
+      "receipts": [
+        {
+          "receipt_id": "Lr87N6iNkrf1GrbHAkDnUspeBx4BJaHru2z8dAPKhTt",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "cbp-shop-sm1110.testnet",
+          "method": "register_receipt",
+          "gas_burnt": "1796941679554",
+          "status": "failure",
+          "failure": "ERR_BAD_SIGNATURE",
+          "logs": []
+        },
+        {
+          "receipt_id": "C15JYTbfN4MUzpEQde7jnt6BDu85FD6JRvR1UZpTaTbU",
+          "executor": "cbp-shop-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [],
+      "step": "L6r",
+      "label": "register_receipt with an edited reply (via app, must fail)",
+      "args": {
+        "order_id": "R611-21"
+      },
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "tx_hash": "3aLpagTfHZQsDEAH6YkCiW95Rjd96aVPkJagWfr4s9Ya",
+      "explorer": "https://testnet.nearblocks.io/txns/3aLpagTfHZQsDEAH6YkCiW95Rjd96aVPkJagWfr4s9Ya",
+      "signer": "cbp-alice-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "claim",
+      "ok": true,
+      "error": null,
+      "value": {
+        "ok": true,
+        "error": null,
+        "token_bps": 2000,
+        "paid_bps": 2000,
+        "payout": "4000000",
+        "response_hash": "d69c8ca973a7c5d3f1068d891f1141e4bf7f5f600a94fae5a7d156a900d86bec",
+        "token": "sm1110-tusdc.testnet"
+      },
+      "gas_burnt_total": "7710612992345",
+      "gas_burnt_tx": "348972127470",
+      "receipts": [
+        {
+          "receipt_id": "5miZ6158k112sCkpP8XB7EU4XcNEL7VWJXEi2VqgqgNV",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "cbp-alice-sm1110.testnet",
+          "method": "claim",
+          "gas_burnt": "2743250846395",
+          "status": "success",
+          "logs": []
+        },
+        {
+          "receipt_id": "5BpDRJ63NAYbinYJDLMWb6sWCARQjaNSidBTMqujdtFC",
+          "executor": "sm1110-tusdc.testnet",
+          "predecessor": "v2.cbp-sm1110.testnet",
+          "method": "ft_transfer",
+          "gas_burnt": "1760219263220",
+          "status": "success",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"v2.cbp-sm1110.testnet\",\"new_owner_id\":\"cbp-alice-sm1110.testnet\",\"amount\":\"4000000\"}]}"
+          ]
+        },
+        {
+          "receipt_id": "C95C7UyPpPQf4wYk4MtXX2tubiF6cqdRPKy3nRkn1W7h",
+          "executor": "cbp-alice-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        },
+        {
+          "receipt_id": "6dvifBdPRi7Mf7mYLYvzzmkhXd4jFw2WMmmyJ1Tv8vDT",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "v2.cbp-sm1110.testnet",
+          "method": "on_claim_paid",
+          "gas_burnt": "2188623067760",
+          "status": "success",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"promise_claimed\",\"data\":[{\"order_id\":\"R611-21\",\"merchant\":\"cbp-shop-sm1110.testnet\",\"buyer\":\"cbp-alice-sm1110.testnet\",\"token_bps\":2000,\"paid_bps\":2000,\"payout\":\"4000000\",\"response_hash\":\"d69c8ca973a7c5d3f1068d891f1141e4bf7f5f600a94fae5a7d156a900d86bec\",\"token\":\"sm1110-tusdc.testnet\"}]}"
+          ]
+        },
+        {
+          "receipt_id": "BWNFzCWR9s4cfE2XyvDsmZJ7VTngSJ22PA1qqGcNMTuK",
+          "executor": "cbp-alice-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        },
+        {
+          "receipt_id": "3CN1rKKPp8JMjC1XmWfGfYDDQTb3Bkw8qJw79T2YdNYt",
+          "executor": "cbp-alice-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"v2.cbp-sm1110.testnet\",\"new_owner_id\":\"cbp-alice-sm1110.testnet\",\"amount\":\"4000000\"}]}",
+        "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"promise_claimed\",\"data\":[{\"order_id\":\"R611-21\",\"merchant\":\"cbp-shop-sm1110.testnet\",\"buyer\":\"cbp-alice-sm1110.testnet\",\"token_bps\":2000,\"paid_bps\":2000,\"payout\":\"4000000\",\"response_hash\":\"d69c8ca973a7c5d3f1068d891f1141e4bf7f5f600a94fae5a7d156a900d86bec\",\"token\":\"sm1110-tusdc.testnet\"}]}"
+      ],
+      "step": "L6r",
+      "label": "claim R611-21 (via app, alice claim key)",
+      "args": {
+        "merchant": "cbp-shop-sm1110.testnet",
+        "order_id": "R611-21",
+        "response_b64": "<reply bytes>"
+      },
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "tx_hash": "2dFBkLJcF7EDDXa7PBQNDBX6GQgMry8GbMMbsqusyYd6",
+      "explorer": "https://testnet.nearblocks.io/txns/2dFBkLJcF7EDDXa7PBQNDBX6GQgMry8GbMMbsqusyYd6",
+      "signer": "cbp-alice-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "claim",
+      "ok": false,
+      "error": "ERR_ALREADY_CLAIMED",
+      "gas_burnt_total": "2090361412956",
+      "gas_burnt_tx": "348972127470",
+      "receipts": [
+        {
+          "receipt_id": "9VA8K649HRRoXod8thpVHtfyKKyAW75ytkgDj8TxwgcV",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "cbp-alice-sm1110.testnet",
+          "method": "claim",
+          "gas_burnt": "1518206722986",
+          "status": "failure",
+          "failure": "ERR_ALREADY_CLAIMED",
+          "logs": []
+        },
+        {
+          "receipt_id": "DCiBAqAUfgDXunStv99S8DCJBeRSCvEpxpKWJiTGNn9i",
+          "executor": "cbp-alice-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [],
+      "step": "L6r",
+      "label": "claim R611-21 a second time (via app, must fail)",
+      "args": {
+        "merchant": "cbp-shop-sm1110.testnet",
+        "order_id": "R611-21",
+        "response_b64": "<reply bytes>"
+      },
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6s",
+      "label": "register_order T6-21",
+      "signer": "cbp-shop-sm1110.testnet",
+      "receiver": "v2.cbp-sm1110.testnet",
+      "method": "register_order",
+      "args": {
+        "order_id": "T6-21",
+        "buyer": "cbp-alice-sm1110.testnet",
+        "amount": "1000000",
+        "max_bps": 3000,
+        "token": "sm1110-tusdc.testnet",
+        "ttl_ms": "1800000"
+      },
+      "deposit_yocto": "1",
+      "prepaid_tgas": 30,
+      "at": "2026-11-11T09:55:35.910Z",
+      "tx_hash": "C7Lt9hxXcr72sGWTBT3DXovHpBMLBvgv7FQgupYCfB7p",
+      "explorer": "https://testnet.nearblocks.io/txns/C7Lt9hxXcr72sGWTBT3DXovHpBMLBvgv7FQgupYCfB7p",
+      "ok": true,
+      "error": null,
+      "value": {
+        "order_id": "T6-21",
+        "merchant": "cbp-shop-sm1110.testnet",
+        "buyer": "cbp-alice-sm1110.testnet",
+        "amount": "1000000",
+        "max_bps": 3000,
+        "liability": "300000",
+        "created_at_ms": "1794390937370",
+        "status": "open",
+        "paid": "0",
+        "paid_bps": 0,
+        "receipt_count": 0,
+        "token": "sm1110-tusdc.testnet",
+        "expires_at_ms": "1794392737370"
+      },
+      "gas_burnt_total": "2881196960185",
+      "gas_burnt_tx": "315355108395",
+      "receipts": [
+        {
+          "receipt_id": "HW6Gc63dzGCc4EZTuANybGysXVzHV1jNprKMwzCnrmxt",
+          "executor": "v2.cbp-sm1110.testnet",
+          "predecessor": "cbp-shop-sm1110.testnet",
+          "method": "register_order",
+          "gas_burnt": "2342659289290",
+          "status": "success",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"order_registered\",\"data\":[{\"order_id\":\"T6-21\",\"merchant\":\"cbp-shop-sm1110.testnet\",\"buyer\":\"cbp-alice-sm1110.testnet\",\"amount\":\"1000000\",\"max_bps\":3000,\"liability\":\"300000\",\"expires_at_ms\":\"1794392737370\",\"token\":\"sm1110-tusdc.testnet\"}]}"
+          ]
+        },
+        {
+          "receipt_id": "AoA29qFDUJ7rgYpZVb5cqZtf8YFZxZAdra3Ldi2p1dYw",
+          "executor": "cbp-shop-sm1110.testnet",
+          "predecessor": "system",
+          "method": "transfer",
+          "gas_burnt": "223182562500",
+          "status": "success",
+          "logs": []
+        }
+      ],
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"botpromise\",\"version\":\"1.1.0\",\"event\":\"order_registered\",\"data\":[{\"order_id\":\"T6-21\",\"merchant\":\"cbp-shop-sm1110.testnet\",\"buyer\":\"cbp-alice-sm1110.testnet\",\"amount\":\"1000000\",\"max_bps\":3000,\"liability\":\"300000\",\"expires_at_ms\":\"1794392737370\",\"token\":\"sm1110-tusdc.testnet\"}]}"
+      ],
+      "round": "2026-11-11-recheck"
     }
   ],
   "checks": [
@@ -6040,6 +6594,264 @@
         "1000000000000000000000000"
       ],
       "pass": true
+    },
+    {
+      "step": "L1r",
+      "name": "on-chain code hash = sha256 of contract-v2/res/bot_promises_v2.wasm",
+      "got": "8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8",
+      "expected": "8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "name": "wasm sha256 = the redeploy the operator reported",
+      "got": "8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8",
+      "expected": "8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "name": "get_config api 2, allow-list unchanged (state kept)",
+      "got": [
+        2,
+        [
+          "sm1110-tusdc.testnet"
+        ]
+      ],
+      "expected": [
+        2,
+        [
+          "sm1110-tusdc.testnet"
+        ]
+      ],
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "name": "TEE signer still registered (state kept)",
+      "got": [
+        "5a0210f2"
+      ],
+      "expected": [
+        "5a0210f2"
+      ],
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "name": "add_signer with another spelling of the registered key works",
+      "got": true,
+      "expected": true,
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "name": "still exactly one signer record, under the bare lower-case key, otherwise unchanged",
+      "got": [
+        [
+          "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff"
+        ],
+        {
+          "kind": "provider_tee",
+          "model_id": "z-ai/glm-5.3-flash",
+          "attestation_sha256": "520bedd1a170147cf13b84ad168440c1db011060fc525da1a434f76e6c126a65",
+          "added_at_ms": 0,
+          "expires_at_ms": "1796035518568"
+        }
+      ],
+      "expected": [
+        [
+          "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff"
+        ],
+        {
+          "kind": "provider_tee",
+          "model_id": "z-ai/glm-5.3-flash",
+          "attestation_sha256": "520bedd1a170147cf13b84ad168440c1db011060fc525da1a434f76e6c126a65",
+          "added_at_ms": 0,
+          "expires_at_ms": "1796035518568"
+        }
+      ],
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "name": "remove_signer of an unknown key: ERR_UNKNOWN_SIGNER",
+      "got": "ERR_UNKNOWN_SIGNER",
+      "expected": "ERR_UNKNOWN_SIGNER",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "name": "the signer list is unchanged by the failed remove",
+      "got": [
+        "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff"
+      ],
+      "expected": [
+        "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff"
+      ],
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L1r",
+      "name": "register_order with 0 deposit still fails with ERR_ONE_YOCTO",
+      "got": "ERR_ONE_YOCTO",
+      "expected": "ERR_ONE_YOCTO",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "order R611-21 registered (20 tUSDC, 30%)",
+      "got": true,
+      "expected": true,
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "storage charge = 253 bytes x 10^19 yocto (246 bytes of L11 for a 5-character id + 4 bytes for the 2 extra id characters, stored twice + the 3-byte status headroom; corrected expectation, see the L6r note)",
+      "got": "2530000000000000000000",
+      "expected": "2530000000000000000000",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "order is open, 6 tUSDC reserved",
+      "got": [
+        "open",
+        "6000000"
+      ],
+      "expected": [
+        "open",
+        "6000000"
+      ],
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "receipt registered by the relayer key, bot promised 20%",
+      "got": [
+        true,
+        "2000"
+      ],
+      "expected": [
+        true,
+        "2000"
+      ],
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "edited bytes: ERR_NO_RECEIPT_FOR_BYTES",
+      "got": "ERR_NO_RECEIPT_FOR_BYTES",
+      "expected": "ERR_NO_RECEIPT_FOR_BYTES",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "registering an edited reply: ERR_BAD_SIGNATURE (the canonical signer key still verifies the real reply only)",
+      "got": "ERR_BAD_SIGNATURE",
+      "expected": "ERR_BAD_SIGNATURE",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "honest claim: ok:true, payout 4 tUSDC (20% of 20)",
+      "got": [
+        true,
+        "4000000"
+      ],
+      "expected": [
+        true,
+        "4000000"
+      ],
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "alice's tUSDC balance rose by 4000000",
+      "got": "4000000",
+      "expected": "4000000",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "bond fell by the payout, reserved fell by 6 tUSDC, paid_out rose by the payout",
+      "got": [
+        "4000000",
+        "6000000",
+        "4000000"
+      ],
+      "expected": [
+        "4000000",
+        "6000000",
+        "4000000"
+      ],
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "order R611-21 is claimed",
+      "got": "claimed",
+      "expected": "claimed",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "the order record grew by at most the 3 prepaid bytes while the order was claimed (the receipt is stored at registration, not at claim)",
+      "got": true,
+      "expected": true,
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "second claim: ERR_ALREADY_CLAIMED",
+      "got": "ERR_ALREADY_CLAIMED",
+      "expected": "ERR_ALREADY_CLAIMED",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6r",
+      "name": "alice's balance is unchanged by the failed claims",
+      "got": "4000000",
+      "expected": "4000000",
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6s",
+      "name": "order T6-21 (5-character id like T1-21..T5-21 of L11) registered",
+      "got": true,
+      "expected": true,
+      "pass": true,
+      "round": "2026-11-11-recheck"
+    },
+    {
+      "step": "L6s",
+      "name": "storage charge = 249 bytes x 10^19 yocto (L11 charged 246 for the same id length before the redeploy)",
+      "got": "2490000000000000000000",
+      "expected": "2490000000000000000000",
+      "pass": true,
+      "round": "2026-11-11-recheck"
     }
   ],
   "notes": [
@@ -6062,6 +6874,12 @@
       "step": "L12",
       "text": "The shop's first attempt to register N123-21 (tUSDC) failed with ERR_INSUFFICIENT_FREE_BOND: after L10 the shop had withdrawn all but about 5 tUSDC of its bond, so the 6 tUSDC reservation did not fit. That is the contract working, not a bug; the script (my mistake) did not top the bond up first. The failed tx stays in this log; L12b tops the bond up and repeats the registration.",
       "at": "2026-11-10"
+    },
+    {
+      "step": "L6r",
+      "text": "My first L6r expectation was wrong and the script recorded it as a FAIL: I expected 249 bytes x 10^19 yocto (246 + 3 headroom) for order R611-21, but the shop was charged 253 bytes (2530000000000000000000 yocto). Cause: R611-21 has a 7-character id, L11's 246 bytes were for 5-character ids, and the id is stored twice (storage key and record), so 2 extra characters add 4 bytes (246 + 4 + 3 = 253). The contract was right, the expectation was mine. The check below replaced the failed one with the corrected expectation (the observed value is unchanged), and L6s measured the 249-byte case with a 5-character id (T6-21). The transaction itself (register_order R611-21) is recorded as it happened.",
+      "at": "2026-11-11T00:00:00.000Z",
+      "round": "2026-11-11-recheck"
     }
   ],
   "l2_before": {
@@ -6284,5 +7102,20 @@
         "total_T": 6.659453280941
       }
     ]
+  },
+  "rechecks": [
+    {
+      "round": "2026-11-11-recheck",
+      "started_at": "2026-11-11T09:54:36.345Z",
+      "wasm_sha256": "8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8",
+      "redeploy_tx": "FRTpSjjFbJ13JWeG7ASC17e3zBeHVagjSFL92JqMp63M",
+      "run_by": "Claude Sonnet 5.5",
+      "redeployed_by": "Claude Opus 5.5 (operator)"
+    }
+  ],
+  "l6r_status_growth": {
+    "storage_usage_before": "314655",
+    "storage_usage_after": "314658",
+    "bytes": "3"
   }
 }

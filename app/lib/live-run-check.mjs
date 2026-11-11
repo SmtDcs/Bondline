@@ -26,9 +26,20 @@ export function checkLiveRunStructure(data) {
     const text = JSON.stringify(t);
     if (/ed25519:[1-9A-HJ-NP-Za-km-z]{50,}|sk-[A-Za-z0-9]{10,}/.test(text)) problems.push(`${at}: contains something that looks like a secret`);
   });
+  // Later rounds on a redeployed build (`rechecks`): every record tagged with a `round` must name a listed round, and a
+  // listed round must say which wasm (sha256) and which redeploy transaction it ran against.
+  const rounds = new Set();
+  for (const [i, r] of (data.rechecks ?? []).entries()) {
+    if (!r?.round) problems.push(`rechecks #${i}: round missing`);
+    if (!/^[0-9a-f]{64}$/.test(String(r?.wasm_sha256 ?? ''))) problems.push(`rechecks #${i}: wasm_sha256 must be 64 hex characters`);
+    if (!BASE58_HASH.test(String(r?.redeploy_tx ?? ''))) problems.push(`rechecks #${i}: redeploy_tx is not a base58 hash`);
+    rounds.add(r?.round);
+  }
+  for (const [i, t] of data.txs.entries()) if (t.round !== undefined && !rounds.has(t.round)) problems.push(`tx #${i} (${t?.label ?? '?'}): round ${t.round} is not listed in rechecks`);
   if (!Array.isArray(data.checks)) problems.push('checks must be an array');
   else data.checks.forEach((c, i) => {
     const at = `check #${i} [${c.step}] ${c.name}`;
+    if (c.round !== undefined && !rounds.has(c.round)) problems.push(`${at}: round ${c.round} is not listed in rechecks`);
     if (c.pass !== true) problems.push(`check #${i} did not pass: [${c.step}] ${c.name}`);
     // A self-reported pass flag proves nothing: the recorded value must itself equal the expectation.
     else if (!checkHolds(c)) problems.push(`${at}: pass is true but got ${JSON.stringify(c.got)} is not expected ${JSON.stringify(c.expected)}`);

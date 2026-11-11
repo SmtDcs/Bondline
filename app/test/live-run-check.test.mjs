@@ -30,6 +30,21 @@ test('problems: bad hash, duplicate hash, wrong explorer link, failed tx without
   assert.match(p, /did not pass: \[L2\] broken/);
 });
 
+test('rechecks: a tagged tx or check needs a listed round with a wasm hash and a redeploy tx', () => {
+  const d = good();
+  d.txs[0].round = 'r2'; d.checks[0].round = 'r2';
+  const p1 = checkLiveRunStructure(d).join('\n');
+  assert.match(p1, /round r2 is not listed in rechecks/);
+  assert.equal((p1.match(/round r2 is not listed/g) ?? []).length, 2); // the tx and the check
+  d.rechecks = [{ round: 'r2', wasm_sha256: 'ab'.repeat(32), redeploy_tx: HASH }];
+  assert.deepEqual(checkLiveRunStructure(d), []);
+  d.rechecks = [{ round: 'r2', wasm_sha256: 'nothex', redeploy_tx: 'x' }, {}];
+  const p2 = checkLiveRunStructure(d).join('\n');
+  assert.match(p2, /wasm_sha256 must be 64 hex/);
+  assert.match(p2, /redeploy_tx is not a base58 hash/);
+  assert.match(p2, /rechecks #1: round missing/);
+});
+
 test('a secret-looking string anywhere in a record is a problem', () => {
   const d = good();
   d.txs[0].args = { key: 'ed25519:' + '5'.repeat(60) };
@@ -98,13 +113,15 @@ test('describeOutcome reads signer, receiver and method from the transaction its
   assert.deepEqual([rec.signer, rec.receiver, rec.method], ['a.testnet', 'b.testnet', 'claim']);
 });
 
-// The recording is of ONE wasm. A rebuilt wasm needs a new live run, so the two must name the same hash.
+// The recording names the wasm each round ran against. A rebuilt wasm needs a new live run, so the committed file must be
+// the one the LATEST round recorded: the header's wasm for the first run, the last `rechecks` entry after a redeploy.
 test('the committed contract-v2 wasm is the one the live run recorded', { skip: !fs.existsSync('fixtures/runs/v2-live-run.json') || !fs.existsSync('contract-v2/res/bot_promises_v2.wasm') }, async () => {
   const { createHash } = await import('node:crypto');
   const data = JSON.parse(fs.readFileSync('fixtures/runs/v2-live-run.json', 'utf8'));
   const sha = createHash('sha256').update(fs.readFileSync('contract-v2/res/bot_promises_v2.wasm')).digest('hex');
-  assert.equal(sha, data.wasm_sha256, 'contract-v2/res/bot_promises_v2.wasm changed without a new live run (fixtures/runs/v2-live-run.json)');
-  const l1 = data.checks.filter(c => c.step === 'L1' && /code hash/.test(c.name));
+  const latest = (data.rechecks ?? []).at(-1);
+  assert.equal(sha, latest ? latest.wasm_sha256 : data.wasm_sha256, 'contract-v2/res/bot_promises_v2.wasm changed without a new live run (fixtures/runs/v2-live-run.json)');
+  const l1 = data.checks.filter(c => /code hash/.test(c.name) && (latest ? c.round === latest.round : c.round === undefined));
   assert.ok(l1.length >= 1);
   for (const c of l1) assert.equal(c.got, sha, c.name);
 });

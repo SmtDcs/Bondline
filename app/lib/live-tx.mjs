@@ -191,6 +191,8 @@ export async function sendTx(provider, account, { contractId, method, args = {},
 export class RunBook {
   constructor(file, header) {
     this.file = file;
+    /** Set (e.g. '2026-11-11-recheck') to tag every tx and check this book records with the round that made it. */
+    this.round = null;
     this.data = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { ...header, txs: [], checks: [], notes: [] };
   }
   save() {
@@ -198,6 +200,7 @@ export class RunBook {
     fs.writeFileSync(this.file, JSON.stringify(this.data, null, 2) + '\n');
   }
   tx(record) {
+    if (this.round) record = { ...record, round: this.round };
     this.data.txs.push(record);
     this.save();
     return record;
@@ -205,7 +208,7 @@ export class RunBook {
   /** A check is a comparison the script made itself: `pass` is computed, never typed in. */
   check(step, name, got, expected, pass) {
     const ok = pass === undefined ? JSON.stringify(got) === JSON.stringify(expected) : Boolean(pass);
-    this.data.checks.push({ step, name, got, expected, pass: ok });
+    this.data.checks.push({ step, name, got, expected, pass: ok, ...(this.round ? { round: this.round } : {}) });
     this.save();
     console.log(`${ok ? 'PASS' : 'FAIL'}  [${step}] ${name}: got ${JSON.stringify(got)}${pass === undefined ? ` expected ${JSON.stringify(expected)}` : ''}`);
     return ok;

@@ -35,7 +35,7 @@ TOKEN_ID="${TOKEN_ID:-$(env_get TOKEN_ID)}"
 V2="${V2:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 # Final review F1: v2 register_order needs exactly 1 yoctoNEAR (full-access key only; a function-call key
-# cannot attach a deposit). The redeployed market (wasm sha256 095bb43e...) has that check, so the V2 paths
+# cannot attach a deposit). The redeployed market (wasm sha256 095bb43e..., and the audit-fixed build 8f4abd25... after it) has that check, so the V2 paths
 # always attach 1 yoctoNEAR (the old REGISTER_ORDER_DEPOSIT override for the previous build is gone).
 # The v1 path keeps 0 (v1 is unchanged). The near-api-js version of the V2 steps (no near-cli) is
 # app/scripts/demo-setup-v2.mjs.

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // Usage: NODE_USE_ENV_PROXY=1 node app/scripts/live-v2.mjs <step> [<step> ...]
 // Steps (docs/STABLECOIN.md section 12): L1 L2pre L2post L3 L4 L5 L6 L8 L7 L9 L9b L10 L11 L12 L13pre L13 gas
+// Re-check on a redeployed build (2026-11-11, audit fixes): LIVE_RUN_ROUND=2026-11-11-recheck REDEPLOY_TX=<tx> NODE_USE_ENV_PROXY=1 node app/scripts/live-v2.mjs L1r L6r
+//   L1r = deployed code hash, canonical signer keys, 1-yocto checks; L6r = fresh tUSDC order: storage charge incl. the status headroom,
+//   tampered claim, edited receipt, honest claim, double claim. Every tx and check of the round is tagged with `round` and the round is
+//   listed in `rechecks` (wasm sha256 + redeploy tx), so the first run's records stay as they were.
 // Signs every testnet transaction with near-api-js using the keys in .env (parsed here, never printed), records every
 // transaction (failures included) in fixtures/runs/v2-live-run.json (override: LIVE_RUN_FILE) and prints PASS/FAIL for each
 // check it makes itself. Steps that need the bot (chat, receipt, claim) talk to the local app (`npm run dev`) over HTTP
@@ -35,6 +39,20 @@ const book = new RunBook(env.LIVE_RUN_FILE ?? 'fixtures/runs/v2-live-run.json', 
   wasm_sha256: '095bb43efde677c2fe531ddcdc4fb3554b9c1c35e897a8b6f23ae5908c9b9721',
   redeploy_tx: 'CbDQ6rL6GzTchuEE9GKqdGEHi8eUyxFKZkoJwJ51h3tC',
 });
+
+const ROUND = process.env.LIVE_RUN_ROUND ?? null;
+// The wasm the committed file must be (L1r compares it with the account's on-chain code hash).
+const RECHECK_WASM_SHA256 = '8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8';
+if (ROUND) {
+  const redeployTx = process.env.REDEPLOY_TX;
+  if (!redeployTx) throw new Error('LIVE_RUN_ROUND needs REDEPLOY_TX (the operator\'s redeploy transaction)');
+  book.round = ROUND;
+  book.data.rechecks ??= [];
+  if (!book.data.rechecks.some(r => r.round === ROUND)) {
+    book.data.rechecks.push({ round: ROUND, started_at: new Date().toISOString(), wasm_sha256: RECHECK_WASM_SHA256, redeploy_tx: redeployTx, run_by: 'Claude Sonnet 5.5', redeployed_by: 'Claude Opus 5.5 (operator)' });
+    book.save();
+  }
+}
 
 const log = (s) => console.log(redactSecrets(s, env));
 const v = (contract, method, args = {}) => retry(() => view(provider, contract, method, args));
@@ -249,6 +267,78 @@ const steps = {
     book.check('L6b', 'the honest claim still pays 4 tUSDC', [cl.body.result?.ok, cl.body.result?.payout, String((await bal(ALICE)) - b4)], [true, '4000000', '4000000']);
     const again = await claimViaApp('L6b', id, c.bundle.response_b64, `claim ${id} a second time (via app)`);
     book.check('L6b', 'second claim: ERR_ALREADY_CLAIMED', again.body.error, 'ERR_ALREADY_CLAIMED');
+  },
+
+  // ---------------- re-check on the redeployed build (audit fixes), see the header ----------------
+  async L1r() {
+    const acct = await retry(() => provider.viewAccount({ accountId: CONTRACT }));
+    const wasm = fs.readFileSync('contract-v2/res/bot_promises_v2.wasm');
+    book.check('L1r', 'on-chain code hash = sha256 of contract-v2/res/bot_promises_v2.wasm', Buffer.from(base58Decode(acct.code_hash)).toString('hex'), sha(wasm));
+    book.check('L1r', 'wasm sha256 = the redeploy the operator reported', sha(wasm), RECHECK_WASM_SHA256);
+    const cfg = await v(CONTRACT, 'get_config');
+    book.check('L1r', 'get_config api 2, allow-list unchanged (state kept)', [cfg.api, cfg.allowed_tokens], [2, [TOKEN]]);
+    const signers = await v(CONTRACT, 'get_signers');
+    book.check('L1r', 'TEE signer still registered (state kept)', signers.map(([k]) => k.slice(0, 8)), ['5a0210f2']);
+    // contract-1: a signer key has one spelling. Re-adding the same key with 0x and upper case must not create a second record.
+    const [pk, info] = signers[0];
+    const args = { public_key_hex: '0x' + pk.toUpperCase(), kind: info.kind, model_id: info.model_id, attestation_sha256: info.attestation_sha256, expires_at_ms: String(info.expires_at_ms) };
+    const spelled = await tx('L1r', 'owner', CONTRACT, 'add_signer', args, { tgas: 30, deposit: 1n, label: 'add_signer with the key spelled 0x + UPPER CASE (same key, 1 yoctoNEAR)' });
+    book.check('L1r', 'add_signer with another spelling of the registered key works', spelled.ok, true);
+    const after = await v(CONTRACT, 'get_signers');
+    book.check('L1r', 'still exactly one signer record, under the bare lower-case key, otherwise unchanged', [after.map(([k]) => k), { ...after[0][1], added_at_ms: 0 }], [[pk], { ...info, added_at_ms: 0 }]);
+    // contract-1: removing a key that is not registered must fail, not return false with a successful transaction.
+    const unknown = await tx('L1r', 'owner', CONTRACT, 'remove_signer', { public_key_hex: '11'.repeat(32) }, { tgas: 30, deposit: 1n, label: 'remove_signer of a key that is not registered (must fail)' });
+    book.check('L1r', 'remove_signer of an unknown key: ERR_UNKNOWN_SIGNER', unknown.error, 'ERR_UNKNOWN_SIGNER');
+    book.check('L1r', 'the signer list is unchanged by the failed remove', (await v(CONTRACT, 'get_signers')).map(([k]) => k), [pk]);
+    const zero = await tx('L1r', 'shop', CONTRACT, 'register_order', { order_id: 'ZERO-DEP-R', buyer: ALICE, amount: '1000000', max_bps: 3000, token: TOKEN, ttl_ms: '1800000' }, { tgas: 30, deposit: 0n, label: 'register_order with 0 deposit (must fail)' });
+    book.check('L1r', 'register_order with 0 deposit still fails with ERR_ONE_YOCTO', zero.error, 'ERR_ONE_YOCTO');
+  },
+
+  // L6r: a fresh tUSDC order on the redeployed build. contract-2: register_order charges the measured bytes plus the 3-byte status headroom.
+  async L6r() {
+    const id = 'R611-21';
+    const sBefore = await v(CONTRACT, 'storage_balance_of', { account_id: SHOP });
+    const bondBefore = await tokenBond();
+    const r = await registerOrder('L6r', 'shop', id, ALICE, 20000000);
+    book.check('L6r', `order ${id} registered (20 tUSDC, 30%)`, r.ok, true);
+    const sAfter = await v(CONTRACT, 'storage_balance_of', { account_id: SHOP });
+    const charged = BigInt(sBefore.available) - BigInt(sAfter.available);
+    // Live run L11 charged 246 bytes for the 5-character ids T1-21..T5-21. The order id is stored twice (in the storage key and in the
+    // record), so each extra id character adds 2 bytes; the redeployed build adds the 3-byte status headroom on top.
+    const expectBytes = 246n + 2n * (BigInt(id.length) - 5n) + 3n;
+    book.check('L6r', `storage charge = ${expectBytes} bytes x 10^19 yocto (246 bytes of L11 for a 5-character id + 2 bytes per extra id character + the 3-byte status headroom)`, String(charged), String(expectBytes * yoctoPerByte));
+    book.check('L6r', 'order is open, 6 tUSDC reserved', [(await order(id)).status, String(BigInt((await tokenBond()).reserved) - BigInt(bondBefore.reserved))], ['open', '6000000']);
+    const c = await chat('L6r', id, HONEST(id));
+    book.check('L6r', 'receipt registered by the relayer key, bot promised 20%', [c.receipt?.ok, c.bps], [true, '2000']);
+    const t = await claimViaApp('L6r', id, tamperedCopy(c.bundle).response_b64, `claim ${id} with the reply edited 2000->3000 (via app, must fail)`);
+    book.check('L6r', 'edited bytes: ERR_NO_RECEIPT_FOR_BYTES', t.body.error, 'ERR_NO_RECEIPT_FOR_BYTES');
+    const e = await app('/api/demo/register-edited', { order_id: id, bundle: c.bundle, edit: { from: 'bps=2000', to: 'bps=3000' } });
+    if (e.body.tx) book.tx({ ...(await fetchTxRecord(provider, e.body.tx, SHOP)), step: 'L6r', label: 'register_receipt with an edited reply (via app, must fail)', signer: SHOP, receiver: CONTRACT, method: 'register_receipt', args: { order_id: id } });
+    book.check('L6r', 'registering an edited reply: ERR_BAD_SIGNATURE (the canonical signer key still verifies the real reply only)', e.body.error, 'ERR_BAD_SIGNATURE');
+    const before = { alice: await bal(ALICE), bond: await tokenBond(), acct: await retry(() => provider.viewAccount({ accountId: CONTRACT })) };
+    const cl = await claimViaApp('L6r', id, c.bundle.response_b64);
+    book.check('L6r', 'honest claim: ok:true, payout 4 tUSDC (20% of 20)', [cl.body.result?.ok, cl.body.result?.payout], [true, '4000000']);
+    book.check('L6r', "alice's tUSDC balance rose by 4000000", String((await bal(ALICE)) - before.alice), '4000000');
+    const after = await tokenBond();
+    book.check('L6r', 'bond fell by the payout, reserved fell by 6 tUSDC, paid_out rose by the payout', [String(BigInt(before.bond.bond) - BigInt(after.bond)), String(BigInt(before.bond.reserved) - BigInt(after.reserved)), String(BigInt(after.paid_out) - BigInt(before.bond.paid_out))], ['4000000', '6000000', '4000000']);
+    book.check('L6r', `order ${id} is claimed`, (await order(id)).status, 'claimed');
+    // contract-2: the status growth (open -> paying -> claimed) was paid at registration, so the market's own free balance does not shrink beyond the claim's gas deposits (none).
+    const acctAfter = await retry(() => provider.viewAccount({ accountId: CONTRACT }));
+    const grewBytes = BigInt(acctAfter.storage_usage) - BigInt(before.acct.storage_usage);
+    book.data.l6r_status_growth = { storage_usage_before: String(before.acct.storage_usage), storage_usage_after: String(acctAfter.storage_usage), bytes: String(grewBytes) };
+    book.check('L6r', 'the order record grew by at most the 3 prepaid bytes while the order was claimed (the receipt is stored at registration, not at claim)', grewBytes <= 3n, true);
+    const again = await claimViaApp('L6r', id, c.bundle.response_b64, `claim ${id} a second time (via app, must fail)`);
+    book.check('L6r', 'second claim: ERR_ALREADY_CLAIMED', again.body.error, 'ERR_ALREADY_CLAIMED');
+    book.check('L6r', "alice's balance is unchanged by the failed claims", String((await bal(ALICE)) - before.alice), '4000000');
+  },
+
+  // L6s: the same charge measured with a 5-character id like the ones of live run L11: exactly 246 + 3 headroom = 249 bytes.
+  async L6s() {
+    const sBefore = await v(CONTRACT, 'storage_balance_of', { account_id: SHOP });
+    const r = await registerOrder('L6s', 'shop', 'T6-21', ALICE, 1000000);
+    const sAfter = await v(CONTRACT, 'storage_balance_of', { account_id: SHOP });
+    book.check('L6s', 'order T6-21 (5-character id like T1-21..T5-21 of L11) registered', r.ok, true);
+    book.check('L6s', 'storage charge = 249 bytes x 10^19 yocto (L11 charged 246 for the same id length before the redeploy)', String(BigInt(sBefore.available) - BigInt(sAfter.available)), String(249n * yoctoPerByte));
   },
 
   // ---------------- L8 injection cap ----------------
