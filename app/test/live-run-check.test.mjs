@@ -8,7 +8,7 @@ import { checkLiveRunStructure, diffRecord } from '../lib/live-run-check.mjs';
 const HASH = '8kFz9qr7Q1NL8rnXz5y3ZosPbWf9pDxCyj2vPZUxEDB9';
 const good = () => ({
   type: 'bot-promises/live-run/v2',
-  txs: [{ tx_hash: HASH, explorer: `https://testnet.nearblocks.io/txns/${HASH}`, ok: true, error: null, signer: 'a.testnet', receiver: 'b.testnet', method: 'claim', gas_burnt_total: '7700000000000', receipts: [], logs: [], label: 'x' }],
+  txs: [{ tx_hash: HASH, explorer: `https://testnet.nearblocks.io/txns/${HASH}`, ok: true, error: null, signer: 'a.testnet', receiver: 'b.testnet', method: 'claim', gas_burnt_total: '7700000000000', receipts: [], logs: [], label: 'x', step: 'L7' }],
   checks: [{ step: 'L1', name: 'n', pass: true }],
 });
 
@@ -53,4 +53,58 @@ test('the committed live run (if present) is well formed, has failures recorded,
   const steps = new Set(data.txs.map(t => t.step));
   for (const s of ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L11', 'L12', 'L13']) assert.ok(steps.has(s), `${s} has at least one recorded tx`);
   assert.ok(data.txs.some(t => t.value?.error === 'ERR_PAYOUT_FAILED' && t.ok), 'L7: the ok:false payout is recorded as a successful tx');
+});
+
+// ---- tests-10 ----
+
+test('a check whose recorded value differs from the expectation is a problem even with pass:true', () => {
+  const d = good();
+  d.checks = [{ step: 'L1', name: 'payout', got: '0', expected: '4000000', pass: true }];
+  assert.match(checkLiveRunStructure(d).join('\n'), /pass is true but got "0" is not expected "4000000"/);
+  d.checks = [{ step: 'L1', name: 'nested', got: { a: ['1'] }, expected: { a: ['1'] }, pass: true }];
+  assert.deepEqual(checkLiveRunStructure(d), []);
+  d.checks = [{ step: 'L1', name: 'nested differs', got: { a: ['1'] }, expected: { a: ['2'] }, pass: true }];
+  assert.equal(checkLiveRunStructure(d).length, 1);
+});
+
+test("the documented '>0' predicate means a positive integer, nothing else passes", () => {
+  const d = good();
+  for (const [got, ok] of [['7580000000000000000000', true], [5, true], ['0', false], ['-1', false], ['abc', false], [null, false]]) {
+    d.checks = [{ step: 'L6', name: 'storage', got, expected: '>0', pass: true }];
+    assert.equal(checkLiveRunStructure(d).length === 0, ok, String(got));
+  }
+});
+
+test('a tx whose step label is not an L-step is a problem', () => {
+  const d = good();
+  d.txs[0].step = 'whatever';
+  assert.match(checkLiveRunStructure(d).join('\n'), /step must look like L7 or L9b/);
+});
+
+test('diffRecord: a tx relabelled as another signer / receiver / method no longer matches the chain', () => {
+  const rec = { ok: true, error: null, gas_burnt_total: '5', logs: [], signer: 'a.testnet', receiver: 'b.testnet', method: 'claim' };
+  assert.deepEqual(diffRecord(rec, { ...rec }), []);
+  assert.match(diffRecord(rec, { ...rec, signer: 'mallory.testnet' }).join(), /signer a\.testnet != mallory\.testnet/);
+  assert.match(diffRecord(rec, { ...rec, receiver: 'c.testnet' }).join(), /receiver/);
+  assert.match(diffRecord(rec, { ...rec, method: 'add_bond' }).join(), /method claim != add_bond/);
+});
+
+test('describeOutcome reads signer, receiver and method from the transaction itself', async () => {
+  const { describeOutcome } = await import('../lib/live-tx.mjs');
+  const rec = describeOutcome({
+    transaction: { hash: HASH, signer_id: 'a.testnet', receiver_id: 'b.testnet', actions: [{ FunctionCall: { method_name: 'claim' } }] },
+    transaction_outcome: { id: HASH, outcome: { gas_burnt: 1 } }, receipts_outcome: [], status: { SuccessValue: '' },
+  });
+  assert.deepEqual([rec.signer, rec.receiver, rec.method], ['a.testnet', 'b.testnet', 'claim']);
+});
+
+// The recording is of ONE wasm. A rebuilt wasm needs a new live run, so the two must name the same hash.
+test('the committed contract-v2 wasm is the one the live run recorded', { skip: !fs.existsSync('fixtures/runs/v2-live-run.json') || !fs.existsSync('contract-v2/res/bot_promises_v2.wasm') }, async () => {
+  const { createHash } = await import('node:crypto');
+  const data = JSON.parse(fs.readFileSync('fixtures/runs/v2-live-run.json', 'utf8'));
+  const sha = createHash('sha256').update(fs.readFileSync('contract-v2/res/bot_promises_v2.wasm')).digest('hex');
+  assert.equal(sha, data.wasm_sha256, 'contract-v2/res/bot_promises_v2.wasm changed without a new live run (fixtures/runs/v2-live-run.json)');
+  const l1 = data.checks.filter(c => c.step === 'L1' && /code hash/.test(c.name));
+  assert.ok(l1.length >= 1);
+  for (const c of l1) assert.equal(c.got, sha, c.name);
 });

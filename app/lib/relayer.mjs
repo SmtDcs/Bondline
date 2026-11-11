@@ -81,6 +81,7 @@ export function makeRelayer(cfg, deps = {}) {
   const buildBytes = deps.buildRequestBytes ?? buildRequestBytes;
   const chatOnce = deps.chatExact ?? chatExact;
   const finalCall = deps.callFinal ?? callFinal;
+  const getSignature = deps.fetchSignature ?? fetchSignature; // injectable so the whole chat path runs offline
   const history = new Map(); // order_id -> [{role, content}]
   const dataDir = deps.dataDir ?? 'data';
   const bundleDir = path.join(dataDir, 'bundles');
@@ -139,7 +140,7 @@ export function makeRelayer(cfg, deps = {}) {
       history: turns, userMessage: message, naivePolicy: naive,
     });
     const chat = await chatOnce({ apiKey: cfg.nearaiKey, requestBytes });
-    const signature = await fetchSignature({ apiKey: cfg.nearaiKey, chatId: chat.chatId, model: cfg.model, signingAlgo: cfg.signingAlgo });
+    const signature = await getSignature({ apiKey: cfg.nearaiKey, chatId: chat.chatId, model: cfg.model, signingAlgo: cfg.signingAlgo });
     const chatId = safeChatId(chat.chatId);
     const bundle = {
       type: 'bot-promises/receipt-bundle/v1', simulated: false, order_id, model: cfg.model, chat_id: chatId,

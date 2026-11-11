@@ -130,15 +130,89 @@ fn setup() -> Contract {
     c
 }
 
-/// Run claim as the buyer, then run the callback with the given transfer result.
+/// The exact JSON the contract puts into the `on_claim_paid` callback. Read back through a typed struct with
+/// `deny_unknown_fields`, so a renamed / missing / extra argument fails the test instead of passing silently.
+#[near_sdk::near(serializers = [json])]
+#[serde(deny_unknown_fields)]
+struct ClaimCallbackArgs {
+    merchant: AccountId,
+    order_id: String,
+    payout: U128,
+    token_bps: u16,
+    paid_bps: u16,
+    response_hash: String,
+}
+
+#[near_sdk::near(serializers = [json])]
+#[serde(deny_unknown_fields)]
+struct WithdrawCallbackArgs {
+    merchant: AccountId,
+    token: Option<AccountId>,
+    amount: U128,
+}
+
+/// Parse the callback receipt that `claim` just created (created receipts are reset by the next ctx()).
+fn claim_callback_args() -> ClaimCallbackArgs {
+    let receipts = get_created_receipts();
+    assert_eq!(receipts.len(), 2, "claim creates the transfer and the callback");
+    assert_eq!(receipts[1].receiver_id, acc(CONTRACT));
+    assert_eq!(receipts[1].receipt_indices, vec![0], "the callback must depend on the transfer");
+    let (method, args, deposit, gas) = function_call(&receipts[1]);
+    assert_eq!(method, "on_claim_paid");
+    assert_eq!((deposit, gas), (0, GAS_CALLBACK));
+    near_sdk::serde_json::from_value(args).expect("on_claim_paid arguments must deserialize with the exact parameter names")
+}
+
+fn withdraw_callback_args() -> WithdrawCallbackArgs {
+    let receipts = get_created_receipts();
+    assert_eq!(receipts.len(), 2, "withdraw_bond creates the transfer and the callback");
+    assert_eq!(receipts[1].receiver_id, acc(CONTRACT));
+    assert_eq!(receipts[1].receipt_indices, vec![0], "the callback must depend on the transfer");
+    let (method, args, deposit, gas) = function_call(&receipts[1]);
+    assert_eq!(method, "on_withdraw_resolved");
+    assert_eq!((deposit, gas), (0, GAS_CALLBACK));
+    near_sdk::serde_json::from_value(args).expect("on_withdraw_resolved arguments must deserialize with the exact parameter names")
+}
+
+/// Run claim as the buyer, then run the callback with the arguments `claim` built (not values re-derived by the test).
 fn claim_and_callback(c: &mut Contract, merchant: &str, buyer: &str, order: &str, response_b64: &str, ok: bool) -> ClaimPreview {
     ctx(buyer, 0);
     let bytes = Base64VecU8(STANDARD.decode(response_b64).unwrap());
     let pre = c.preview_claim(acc(merchant), order.into(), bytes.clone());
     let p = c.claim(acc(merchant), order.into(), bytes);
     drop(p);
+    let a = claim_callback_args();
+    assert_eq!(a.merchant, acc(merchant));
+    assert_eq!(a.order_id, order);
+    assert_eq!((a.payout, a.token_bps, a.paid_bps, a.response_hash.clone()), (pre.payout, pre.token_bps, pre.paid_bps, pre.response_hash.clone()));
     ctx_result(if ok { PromiseResult::Successful(vec![]) } else { PromiseResult::Failed });
-    c.on_claim_paid(acc(merchant), order.into(), pre.payout, pre.token_bps, pre.paid_bps, pre.response_hash)
+    c.on_claim_paid(a.merchant, a.order_id, a.payout, a.token_bps, a.paid_bps, a.response_hash)
+}
+
+/// Run withdraw_bond as the merchant, then the callback with the arguments it built.
+fn withdraw_and_callback(c: &mut Contract, merchant: &str, token: Option<&str>, amount: u128, result: PromiseResult) -> bool {
+    ctx(merchant, 1);
+    drop(c.withdraw_bond(U128(amount), token.map(acc)));
+    let a = withdraw_callback_args();
+    assert_eq!(a.merchant, acc(merchant));
+    assert_eq!(a.token, token.map(acc));
+    assert_eq!(a.amount, U128(amount));
+    ctx_result(result);
+    c.on_withdraw_resolved(a.merchant, a.token, a.amount)
+}
+
+/// The solvency invariant for one (merchant, token) bond: reserved <= bond, and the open liabilities
+/// (status open or paying) of `order_ids` add up to exactly `reserved`.
+fn assert_books(c: &Contract, merchant: &str, token: Option<&str>, order_ids: &[&str]) {
+    let bond = c.get_bond(acc(merchant), token.map(acc)).unwrap();
+    assert!(bond.reserved.0 <= bond.bond.0, "reserved {} exceeds bond {}", bond.reserved.0, bond.bond.0);
+    let open: u128 = order_ids
+        .iter()
+        .map(|id| c.get_order(acc(merchant), (*id).into()).unwrap())
+        .filter(|o| o.token == token.map(acc) && (o.status == "open" || o.status == "paying"))
+        .map(|o| o.liability.0)
+        .sum();
+    assert_eq!(open, bond.reserved.0, "sum of open liabilities must equal reserved");
 }
 
 fn first_receipt() -> near_sdk::mock::Receipt {
@@ -619,23 +693,24 @@ fn register_receipt_refuses_order_that_is_not_open_or_is_expired() {
     ctx("alice.testnet", 0);
     let p = c.claim(acc("shop.testnet"), "A123".into(), b64(&x["honest"], "response_b64"));
     drop(p);
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    // (the status guard runs before the duplicate check, so this exact code proves the status guard)
+    panics_with(std::panic::AssertUnwindSafe(|| {
         ctx("shop.testnet", 0);
-        c.register_receipt("A123".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"))
-    })).is_err());
+        c.register_receipt("A123".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"));
+    }), "ERR_ORDER_NOT_OPEN");
     // claimed
     ctx_result(PromiseResult::Successful(vec![]));
     c.on_claim_paid(acc("shop.testnet"), "A123".into(), U128(4_000_000), 2000, 2000, s(&x["honest"], "response_hash"));
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         ctx("shop.testnet", 0);
-        c.register_receipt("A123".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"))
-    })).is_err());
+        c.register_receipt("A123".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"));
+    }), "ERR_ORDER_NOT_OPEN");
     // past expires_at_ms while still open
     let o = register_order(&mut c, "shop.testnet", "D10X", "alice.testnet", 20_000_000, 3000, Some(TUSDC), Some(1000));
     ctx_at("shop.testnet", 0, o.expires_at_ms.0);
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        c.register_receipt("D10X".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"))
-    })).is_err());
+    panics_with(std::panic::AssertUnwindSafe(|| {
+        c.register_receipt("D10X".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"));
+    }), "ERR_ORDER_EXPIRED");
 }
 
 // ======================= E. storage accounting =======================
@@ -704,10 +779,9 @@ fn short_balance_panics_and_leaves_no_order() {
     c.register_merchant(); // bond only: no storage balance at all
     ctx("shop.testnet", 1);
     let before = env::storage_usage();
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.register_order("E5".into(), acc("alice.testnet"), U128(NEAR), 1000, None, None);
-    }));
-    assert!(r.is_err());
+    }), "ERR_STORAGE_BALANCE");
     assert_eq!(env::storage_usage(), before, "the order record must be removed again");
     assert!(c.get_order(acc("shop.testnet"), "E5".into()).is_none());
     assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap().reserved, U128(0));
@@ -723,11 +797,10 @@ fn short_balance_panics_on_receipt_too() {
     c.storage_withdraw(Some(U128(avail - 1)));
     ctx("shop.testnet", 0);
     let before = env::storage_usage();
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         let x = v();
         c.register_receipt("E5R".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"));
-    }));
-    assert!(r.is_err());
+    }), "ERR_STORAGE_BALANCE");
     assert_eq!(env::storage_usage(), before);
     assert!(c.get_receipt(acc("shop.testnet"), s(&v()["honest"], "response_hash")).is_none());
     assert_eq!(c.get_order(acc("shop.testnet"), "E5R".into()).unwrap().receipt_count, 0);
@@ -741,7 +814,7 @@ fn storage_withdraw_takes_only_the_available_part() {
     // above available: panic; exactly available: works, the used part stays
     let available = view.available.0;
     ctx("shop.testnet", 1);
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.storage_withdraw(Some(U128(available + 1))))).is_err());
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.storage_withdraw(Some(U128(available + 1))))), "ERR_STORAGE_BALANCE");
     let after = c.storage_withdraw(Some(U128(available)));
     assert_eq!(after.total, U128(used));
     assert_eq!(after.available, U128(0));
@@ -793,10 +866,9 @@ fn spam_loop_stops_when_the_storage_balance_runs_out() {
     }
     assert_eq!(decreased, growth + 5 * 3 * byte_cost());
     assert_eq!(c.storage_balance_of(acc("shop.testnet")).unwrap().available.0, free - decreased);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         register_order(&mut c, "shop.testnet", "S6", "alice.testnet", 1000, 1000, Some(TUSDC), None);
-    }));
-    assert!(r.is_err(), "the sixth order must not fit");
+    }), "ERR_STORAGE_BALANCE");
     assert!(c.get_order(acc("shop.testnet"), "S6".into()).is_none());
     // the NEAR bond and the token bond are untouched by the spam (only the storage balance paid)
     assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap().bond, U128(3 * NEAR));
@@ -895,14 +967,12 @@ fn ttl_defaults_and_bounds() {
     assert_eq!(o.expires_at_ms, U64(NOW_MS + DEFAULT_ORDER_TTL_MS));
     let o = register_order(&mut c, "shop.testnet", "G2", "alice.testnet", NEAR, 1000, None, Some(DAY_MS));
     assert_eq!(o.expires_at_ms, U64(NOW_MS + DAY_MS));
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         register_order(&mut c, "shop.testnet", "G3", "alice.testnet", NEAR, 1000, None, Some(999));
-    }));
-    assert!(r.is_err());
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    }), "ERR_TTL");
+    panics_with(std::panic::AssertUnwindSafe(|| {
         register_order(&mut c, "shop.testnet", "G4", "alice.testnet", NEAR, 1000, None, Some(MAX_ORDER_TTL_MS + 1));
-    }));
-    assert!(r.is_err());
+    }), "ERR_TTL");
 }
 
 #[test]
@@ -914,16 +984,14 @@ fn claim_and_register_receipt_stop_at_the_expiry_boundary() {
     // preview and claim at exactly expires_at_ms
     let p = c.preview_claim(acc("shop.testnet"), "G2A".into(), b64(&vec["honest"], "response_b64"));
     assert_eq!(p.error.as_deref(), Some("ERR_ORDER_EXPIRED"));
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.claim(acc("shop.testnet"), "G2A".into(), b64(&vec["honest"], "response_b64"));
-    }));
-    assert!(r.is_err());
-    // register_receipt after expiry (same clock, no helper that resets it)
+    }), "ERR_ORDER_EXPIRED");
+    // register_receipt after expiry (same clock, no helper that resets it); the expiry guard runs before the duplicate check
     ctx_at("shop.testnet", 0, o.expires_at_ms.0);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.register_receipt("G2A".into(), s(&vec["honest"], "signed_text"), s(&vec["honest"], "signature_hex"), s(&vec["honest"], "signer_public_key_hex"));
-    }));
-    assert!(r.is_err());
+    }), "ERR_ORDER_EXPIRED");
     // just before the boundary a fresh order is fine
     let o2 = register_order(&mut c, "shop.testnet", "G2B", "alice.testnet", 2 * NEAR, 3000, None, Some(1000));
     ctx_at("alice.testnet", 0, o2.expires_at_ms.0 - 1);
@@ -968,18 +1036,16 @@ fn release_checks_status_and_never_double_releases() {
     let a123 = c.get_order(acc("shop.testnet"), "A123".into()).unwrap();
     claim_and_callback(&mut c, "shop.testnet", "alice.testnet", "A123", &s(&vec["honest"], "response_b64"), true);
     ctx_at("bob.testnet", 0, a123.expires_at_ms.0);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.release_expired(acc("shop.testnet"), "A123".into());
-    }));
-    assert!(r.is_err(), "a claimed order cannot be released");
+    }), "ERR_ORDER_NOT_OPEN");
     // a released order cannot be released again
     let o2 = register_order(&mut c, "shop.testnet", "G5B", "alice.testnet", 2 * NEAR, 3000, None, Some(1000));
     ctx_at("bob.testnet", 0, o2.expires_at_ms.0);
     c.release_expired(acc("shop.testnet"), "G5B".into());
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.release_expired(acc("shop.testnet"), "G5B".into());
-    }));
-    assert!(r.is_err());
+    }), "ERR_ORDER_NOT_OPEN");
     // A123 was claimed (its reservation is gone), A124 is still reserved
     assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap().reserved, U128(6 * NEAR / 10));
 }
@@ -993,10 +1059,9 @@ fn paying_order_cannot_be_released() {
     let p = c.claim(acc("shop.testnet"), "A123".into(), b64(&vec["honest"], "response_b64"));
     drop(p);
     ctx_at("bob.testnet", 0, o.expires_at_ms.0);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.release_expired(acc("shop.testnet"), "A123".into());
-    }));
-    assert!(r.is_err());
+    }), "ERR_CLAIM_IN_PROGRESS");
     assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "paying");
 }
 
@@ -1039,6 +1104,14 @@ fn token_claim_creates_ft_transfer_and_callback() {
     assert_eq!(args["payout"], "4000000");
     assert_eq!(deposit, 0);
     assert_eq!(gas, GAS_CALLBACK);
+    // the complete argument object, key by key, as the wasm would deserialize it
+    assert_eq!(
+        args,
+        json!({
+            "merchant": "shop.testnet", "order_id": "A123", "payout": "4000000",
+            "token_bps": 2000, "paid_bps": 2000, "response_hash": s(&x["honest"], "response_hash"),
+        })
+    );
     // state right after the claim
     let o = c.get_order(acc("shop.testnet"), "A123".into()).unwrap();
     assert_eq!(o.status, "paying");
@@ -1062,6 +1135,37 @@ fn near_claim_creates_transfer_and_callback() {
     assert_eq!(transfer_deposit(&receipts[0]), 4 * NEAR / 10);
     assert_eq!(receipts[1].receiver_id, acc(CONTRACT));
     assert_eq!(function_call(&receipts[1]).0, "on_claim_paid");
+    let a = claim_callback_args();
+    assert_eq!((a.payout, a.token_bps, a.paid_bps), (U128(4 * NEAR / 10), 2000, 2000));
+    assert_eq!(a.response_hash, s(&x["honest"], "response_hash"));
+}
+
+#[test]
+fn claim_callback_args_carry_the_clipped_injection_values_under_the_right_names() {
+    let mut c = token_order_setup();
+    let x = v();
+    ctx("alice.testnet", 0);
+    drop(c.claim(acc("shop.testnet"), "A124".into(), b64(&x["injection"], "response_b64")));
+    let receipts = get_created_receipts();
+    let (_, raw, _, _) = function_call(&receipts[1]);
+    // token said 100%, the cap is 30%: the two numbers differ, so a swap of the names cannot hide
+    assert_eq!(
+        raw,
+        json!({
+            "merchant": "shop.testnet", "order_id": "A124", "payout": "6000000",
+            "token_bps": 10000, "paid_bps": 3000, "response_hash": s(&x["injection"], "response_hash"),
+        })
+    );
+    // and the callback, fed with exactly these values, books the 30% the contract promised
+    let a = claim_callback_args();
+    ctx_result(PromiseResult::Successful(vec![]));
+    let p = c.on_claim_paid(a.merchant, a.order_id, a.payout, a.token_bps, a.paid_bps, a.response_hash);
+    assert!(p.ok);
+    assert_eq!((p.token_bps, p.paid_bps, p.payout), (10000, 3000, U128(6_000_000)));
+    assert_eq!(p.response_hash, s(&x["injection"], "response_hash"));
+    assert_eq!(c.get_order(acc("shop.testnet"), "A124".into()).unwrap().paid_bps, 3000);
+    let ev: Vec<_> = events().into_iter().filter(|e| e["event"] == "promise_claimed").collect();
+    assert_eq!(ev[0]["data"][0]["response_hash"], s(&x["injection"], "response_hash"));
 }
 
 #[test]
@@ -1129,10 +1233,9 @@ fn double_claim_is_refused_and_creates_no_transfer() {
     let x = v();
     claim_and_callback(&mut c, "shop.testnet", "alice.testnet", "A123", &s(&x["honest"], "response_b64"), true);
     ctx("alice.testnet", 0);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.claim(acc("shop.testnet"), "A123".into(), b64(&x["honest"], "response_b64"));
-    }));
-    assert!(r.is_err());
+    }), "ERR_ALREADY_CLAIMED");
     assert!(get_created_receipts().is_empty());
 }
 
@@ -1143,10 +1246,9 @@ fn a_second_claim_while_paying_is_refused() {
     ctx("alice.testnet", 0);
     let p = c.claim(acc("shop.testnet"), "A123".into(), b64(&x["honest"], "response_b64"));
     drop(p);
-    let p2 = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.claim(acc("shop.testnet"), "A123".into(), b64(&x["honest"], "response_b64"));
-    }));
-    assert!(p2.is_err());
+    }), "ERR_CLAIM_IN_PROGRESS");
     assert_eq!(get_created_receipts().len(), 2, "only the first claim's receipts");
 }
 
@@ -1183,10 +1285,9 @@ fn claim_below_the_gas_guard_is_refused_before_state() {
     let mut c = token_order_setup();
     let x = v();
     ctx_gas("alice.testnet", 0, 30);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        c.claim(acc("shop.testnet"), "A123".into(), b64(&x["honest"], "response_b64"));
-    }));
-    assert!(r.is_err());
+    panics_with(std::panic::AssertUnwindSafe(|| {
+        drop(c.claim(acc("shop.testnet"), "A123".into(), b64(&x["honest"], "response_b64")));
+    }), "ERR_NOT_ENOUGH_GAS");
     assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "open");
     assert!(get_created_receipts().is_empty());
 }
@@ -1202,10 +1303,9 @@ fn payout_zero_is_refused_and_nothing_moves() {
     register_receipt(&mut c, "shop.testnet", "A123", &v()["honest"]);
     let before = c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap();
     ctx("alice.testnet", 0);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.claim(acc("shop.testnet"), "A123".into(), b64(&v()["honest"], "response_b64"));
-    }));
-    assert!(r.is_err());
+    }), "ERR_PAYOUT_ZERO");
     assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "open");
     assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap(), before);
     assert!(get_created_receipts().is_empty());
@@ -1252,23 +1352,17 @@ fn token_withdraw_debits_at_once_and_builds_ft_transfer() {
 #[test]
 fn withdraw_callback_success_emits_and_failure_restores() {
     let mut c = token_order_setup();
-    ctx("shop.testnet", 1);
-    let p = c.withdraw_bond(U128(2_000_000), Some(acc(TUSDC)));
-    drop(p);
-    ctx_result(PromiseResult::Successful(vec![]));
-    assert!(c.on_withdraw_resolved(acc("shop.testnet"), Some(acc(TUSDC)), U128(2_000_000)));
+    assert!(withdraw_and_callback(&mut c, "shop.testnet", Some(TUSDC), 2_000_000, PromiseResult::Successful(vec![])));
     assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(18_000_000));
     let e = events();
     assert_eq!(e.len(), 1);
     assert_eq!(e[0]["event"], "bond_withdrawn");
     assert_eq!(e[0]["data"][0]["token"], TUSDC);
 
-    ctx("shop.testnet", 1);
-    let p = c.withdraw_bond(U128(2_000_000), Some(acc(TUSDC)));
-    drop(p);
-    ctx_result(PromiseResult::Failed);
-    assert!(!c.on_withdraw_resolved(acc("shop.testnet"), Some(acc(TUSDC)), U128(2_000_000)));
+    assert!(!withdraw_and_callback(&mut c, "shop.testnet", Some(TUSDC), 2_000_000, PromiseResult::Failed));
+    // exactly the debited amount comes back, not a unit more or less
     assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(18_000_000));
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["A123", "A124"]);
     assert!(events().is_empty());
     assert_eq!(get_logs(), vec!["WITHDRAW_FAILED:tusdc.testnet".to_string()]);
 }
@@ -1280,10 +1374,9 @@ fn two_quick_withdrawals_cannot_exceed_the_free_bond() {
     let free = 20_000_000u128 - 12_000_000;
     let p = c.withdraw_bond(U128(free - 1), Some(acc(TUSDC)));
     drop(p);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.withdraw_bond(U128(2), Some(acc(TUSDC)));
-    }));
-    assert!(r.is_err());
+    }), "ERR_WITHDRAW_EXCEEDS_FREE_BOND");
     assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(20_000_000 - (free - 1)));
 }
 
@@ -1293,15 +1386,13 @@ fn withdraw_checks_the_reserved_part_and_the_existing_record() {
     ctx("shop.testnet", 1);
     let free = 20_000_000u128 - 12_000_000;
     for amount in [free + 1, 0, 20_000_000] {
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        panics_with(std::panic::AssertUnwindSafe(|| {
             c.withdraw_bond(U128(amount), Some(acc(TUSDC)));
-        }));
-        assert!(r.is_err(), "amount {}", amount);
+        }), "ERR_WITHDRAW_EXCEEDS_FREE_BOND");
     }
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         c.withdraw_bond(U128(1), Some(acc(TUSDT)));
-    }));
-    assert!(r.is_err());
+    }), "ERR_NO_BOND");
     // the v1 call without token still withdraws NEAR
     let p = c.withdraw_bond(U128(NEAR), None);
     drop(p);
@@ -1316,8 +1407,11 @@ fn near_withdraw_restores_on_failure() {
     let p = c.withdraw_bond(U128(NEAR), None);
     drop(p);
     assert_eq!(transfer_deposit(&first_receipt()), NEAR);
+    // the NEAR callback names no token: the JSON carries an explicit null
+    assert_eq!(function_call(&get_created_receipts()[1]).1, json!({"merchant": "shop.testnet", "token": null, "amount": NEAR.to_string()}));
+    let a = withdraw_callback_args();
     ctx_result(PromiseResult::Failed);
-    assert!(!c.on_withdraw_resolved(acc("shop.testnet"), None, U128(NEAR)));
+    assert!(!c.on_withdraw_resolved(a.merchant, a.token, a.amount));
     assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap(), before);
     assert_eq!(get_logs(), vec!["WITHDRAW_FAILED:NEAR".to_string()]);
 }
@@ -1560,10 +1654,9 @@ fn receipts_register_against_a_prefixed_signer_key_and_revocation_stops_them() {
     ctx("owner.testnet", 1);
     c.remove_signer(bare.clone());
     register_order(&mut c, "shop.testnet", "A124", "alice.testnet", 2 * NEAR, 3000, None, None);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    panics_with(std::panic::AssertUnwindSafe(|| {
         register_receipt(&mut c, "shop.testnet", "A124", &vec["injection"]);
-    }));
-    assert!(r.is_err(), "a revoked signer must not register receipts");
+    }), "ERR_UNKNOWN_SIGNER");
 }
 
 #[test]
@@ -1599,4 +1692,486 @@ fn no_status_transition_grows_the_order_record_beyond_the_prepaid_headroom() {
     // and the headroom is exactly what the longest status needs (no silent over- or under-charge)
     let longest = ["open", "paying", "claimed", "expired"].iter().map(|x| x.len()).max().unwrap();
     assert_eq!(longest - "open".len(), headroom);
+}
+
+// ======================= audit fixes: tests-1 .. tests-6 =======================
+
+/// owner + honest signer + shop.testnet (3 NEAR bond, 1 NEAR storage) + one 2 NEAR / 30% order A123, NO receipt yet.
+fn one_order_no_receipt() -> Contract {
+    let mut c = new_contract(vec![]);
+    add_honest_signer(&mut c);
+    merchant(&mut c, "shop.testnet", 3 * NEAR, NEAR);
+    register_order(&mut c, "shop.testnet", "A123", "alice.testnet", 2 * NEAR, 3000, None, None);
+    c
+}
+
+fn try_register(c: &mut Contract, merchant: &str, order: &str, x: &Value) {
+    ctx(merchant, 0);
+    c.register_receipt(order.into(), s(x, "signed_text"), s(x, "signature_hex"), s(x, "signer_public_key_hex"));
+}
+
+// ---- tests-1: the signer registry guards ----
+
+#[test]
+fn only_the_owner_can_add_a_signer() {
+    let mut c = new_contract(vec![]);
+    let vec = v();
+    let pk = s(&vec["honest"], "signer_public_key_hex");
+    // mallory attaches the 1 yocto, so ONLY the owner check can stop her
+    ctx("mallory.testnet", 1);
+    panics_with(
+        std::panic::AssertUnwindSafe(|| {
+            c.add_signer(pk.clone(), "provider_tee".into(), Some("z-ai/glm-5.3-flash".into()), "00".repeat(32), U64(NOW_MS + DAY_MS));
+        }),
+        "ERR_NOT_OWNER",
+    );
+    assert!(c.get_signer(pk).is_none());
+    assert!(c.get_signers().is_empty());
+}
+
+#[test]
+fn only_the_owner_can_remove_a_signer() {
+    let mut c = new_contract(vec![]);
+    add_honest_signer(&mut c);
+    let pk = s(&v()["honest"], "signer_public_key_hex");
+    let before = c.get_signer(pk.clone()).unwrap();
+    ctx("mallory.testnet", 1);
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.remove_signer(pk.clone()))), "ERR_NOT_OWNER");
+    assert_eq!(c.get_signer(pk).unwrap(), before, "the signer is untouched");
+}
+
+#[test]
+fn a_self_generated_key_cannot_register_a_receipt() {
+    // nobody registered a signer: the honest vector carries a valid signature, but its key is not on the list
+    let mut c = new_contract(vec![]);
+    merchant(&mut c, "shop.testnet", 3 * NEAR, NEAR);
+    register_order(&mut c, "shop.testnet", "A123", "alice.testnet", 2 * NEAR, 3000, None, None);
+    let x = v();
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "A123", &x["honest"])), "ERR_UNKNOWN_SIGNER");
+    assert!(c.get_receipt(acc("shop.testnet"), s(&x["honest"], "response_hash")).is_none());
+    assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().receipt_count, 0);
+}
+
+#[test]
+fn a_removed_signer_can_no_longer_register_receipts() {
+    let mut c = one_order_no_receipt();
+    let x = v();
+    let pk = s(&x["honest"], "signer_public_key_hex");
+    ctx("owner.testnet", 1);
+    assert!(c.remove_signer(pk));
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "A123", &x["honest"])), "ERR_UNKNOWN_SIGNER");
+    assert!(c.get_receipt(acc("shop.testnet"), s(&x["honest"], "response_hash")).is_none());
+}
+
+#[test]
+fn a_signer_of_another_model_cannot_vouch_for_this_text() {
+    let x = v();
+    let pk = s(&x["honest"], "signer_public_key_hex");
+    let attest = "fd320d9f17de6c99f28c168ffd429af6859cd0e6a81e1a31c813aeca07810672".to_string();
+    // registered for a different model than the signed text names
+    let mut c = new_contract(vec![]);
+    ctx("owner.testnet", 1);
+    c.add_signer(pk.clone(), "provider_tee".into(), Some("other/model".into()), attest.clone(), U64(NOW_MS + DAY_MS));
+    merchant(&mut c, "shop.testnet", 3 * NEAR, NEAR);
+    register_order(&mut c, "shop.testnet", "A123", "alice.testnet", 2 * NEAR, 3000, None, None);
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "A123", &x["honest"])), "ERR_MODEL_MISMATCH");
+    assert!(c.get_receipt(acc("shop.testnet"), s(&x["honest"], "response_hash")).is_none());
+}
+
+#[test]
+fn a_gateway_key_cannot_vouch_for_a_text_that_names_a_model() {
+    let x = v();
+    let pk = s(&x["honest"], "signer_public_key_hex");
+    let attest = "fd320d9f17de6c99f28c168ffd429af6859cd0e6a81e1a31c813aeca07810672".to_string();
+    let mut c = new_contract(vec![]);
+    ctx("owner.testnet", 1);
+    c.add_signer(pk, "gateway".into(), None, attest, U64(NOW_MS + DAY_MS));
+    merchant(&mut c, "shop.testnet", 3 * NEAR, NEAR);
+    register_order(&mut c, "shop.testnet", "A123", "alice.testnet", 2 * NEAR, 3000, None, None);
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "A123", &x["honest"])), "ERR_MODEL_MISMATCH");
+}
+
+#[test]
+fn add_signer_validates_kind_model_attestation_and_expiry() {
+    let mut c = new_contract(vec![]);
+    let pk = s(&v()["honest"], "signer_public_key_hex");
+    let att = "00".repeat(32);
+    let cases: Vec<(&str, Option<&str>, String, u64, &str)> = vec![
+        ("provider_tee", None, att.clone(), NOW_MS + DAY_MS, "ERR_SIGNER_KIND"),
+        ("provider_tee", Some(""), att.clone(), NOW_MS + DAY_MS, "ERR_SIGNER_KIND"),
+        ("gateway", Some("m"), att.clone(), NOW_MS + DAY_MS, "ERR_SIGNER_KIND"),
+        ("whatever", Some("m"), att.clone(), NOW_MS + DAY_MS, "ERR_SIGNER_KIND"),
+        ("provider_tee", Some("m"), "zz".into(), NOW_MS + DAY_MS, "ERR_ATTESTATION_HASH"),
+        ("provider_tee", Some("m"), att.clone(), NOW_MS, "ERR_EXPIRY_IN_PAST"),
+        ("provider_tee", Some("m"), att.clone(), NOW_MS - 1, "ERR_EXPIRY_IN_PAST"),
+    ];
+    for (kind, model, attestation, expires, code) in cases {
+        ctx("owner.testnet", 1);
+        panics_with(
+            std::panic::AssertUnwindSafe(|| {
+                c.add_signer(pk.clone(), kind.into(), model.map(String::from), attestation.clone(), U64(expires));
+            }),
+            code,
+        );
+        assert!(c.get_signer(pk.clone()).is_none(), "{}", code);
+    }
+    // a malformed key is refused too
+    ctx("owner.testnet", 1);
+    panics_with(
+        std::panic::AssertUnwindSafe(|| {
+            c.add_signer("abcd".into(), "provider_tee".into(), Some("m".into()), att.clone(), U64(NOW_MS + DAY_MS));
+        }),
+        "ERR_",
+    );
+    // a gateway key with no model is accepted
+    ctx("owner.testnet", 1);
+    c.add_signer(pk.clone(), "gateway".into(), None, att, U64(NOW_MS + DAY_MS));
+    assert_eq!(c.get_signer(pk).unwrap().kind, "gateway");
+}
+
+// ---- tests-3: solvency, the sum of liabilities never exceeds the bond ----
+
+#[test]
+fn token_orders_cannot_reserve_more_than_the_free_token_bond() {
+    let mut c = token_merchant(); // 20 tUSDC bond
+    register_order(&mut c, "shop.testnet", "T1", "alice.testnet", 20_000_000, 6000, Some(TUSDC), None);
+    assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().reserved, U128(12_000_000));
+    // 8_000_001 > the free 8_000_000
+    panics_with(
+        std::panic::AssertUnwindSafe(|| {
+            register_order(&mut c, "shop.testnet", "T2", "alice.testnet", 20_000_000, 4001, Some(TUSDC), None);
+        }),
+        "ERR_INSUFFICIENT_FREE_BOND",
+    );
+    let b = c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap();
+    assert_eq!(b.reserved, U128(12_000_000));
+    assert!(c.get_order(acc("shop.testnet"), "T2".into()).is_none());
+    // exactly the free 8_000_000 fits and uses the bond up
+    register_order(&mut c, "shop.testnet", "T3", "alice.testnet", 20_000_000, 4000, Some(TUSDC), None);
+    let b = c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap();
+    assert_eq!(b.reserved, b.bond);
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["T1", "T3"]);
+    // one more unit is refused
+    panics_with(
+        std::panic::AssertUnwindSafe(|| {
+            register_order(&mut c, "shop.testnet", "T4", "alice.testnet", 10_000, 10_000, Some(TUSDC), None);
+        }),
+        "ERR_INSUFFICIENT_FREE_BOND",
+    );
+}
+
+#[test]
+fn near_orders_cannot_reserve_more_than_the_free_near_bond() {
+    let mut c = setup(); // 3 NEAR bond, 1.2 NEAR reserved by A123 + A124
+    assert_books(&c, "shop.testnet", None, &["A123", "A124"]);
+    // free is 1.8 NEAR: 1.8003 does not fit
+    panics_with(
+        std::panic::AssertUnwindSafe(|| {
+            register_order(&mut c, "shop.testnet", "N2", "alice.testnet", 3 * NEAR, 6001, None, None);
+        }),
+        "ERR_INSUFFICIENT_FREE_BOND",
+    );
+    assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap().reserved, U128(12 * NEAR / 10 + 0));
+    register_order(&mut c, "shop.testnet", "N3", "alice.testnet", 3 * NEAR, 6000, None, None);
+    let m = c.get_merchant(acc("shop.testnet")).unwrap();
+    assert_eq!(m.reserved, m.bond);
+    assert_books(&c, "shop.testnet", None, &["A123", "A124", "N3"]);
+}
+
+#[test]
+fn the_books_balance_after_claim_failed_payout_withdraw_and_expiry() {
+    let mut c = token_order_setup(); // A123 + A124 reserve 6 tUSDC each
+    let x = v();
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["A123", "A124"]);
+    claim_and_callback(&mut c, "shop.testnet", "alice.testnet", "A123", &s(&x["honest"], "response_b64"), false);
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["A123", "A124"]);
+    claim_and_callback(&mut c, "shop.testnet", "alice.testnet", "A123", &s(&x["honest"], "response_b64"), true);
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["A123", "A124"]);
+    assert!(withdraw_and_callback(&mut c, "shop.testnet", Some(TUSDC), 1_000_000, PromiseResult::Successful(vec![])));
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["A123", "A124"]);
+    assert!(!withdraw_and_callback(&mut c, "shop.testnet", Some(TUSDC), 1_000_000, PromiseResult::Failed));
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["A123", "A124"]);
+    let o = c.get_order(acc("shop.testnet"), "A124".into()).unwrap();
+    ctx_at("bob.testnet", 0, o.expires_at_ms.0);
+    c.release_expired(acc("shop.testnet"), "A124".into());
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["A123", "A124"]);
+    assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().reserved, U128(0));
+}
+
+// ---- tests-4: receipt binding ----
+
+#[test]
+fn a_reply_whose_token_names_another_order_cannot_be_claimed_under_this_one() {
+    let mut c = one_order_no_receipt();
+    let x = v();
+    // the merchant files the INJECTION reply (its token says order=A124) under A123: registering is allowed,
+    // the binding is enforced when the shopper claims
+    try_register(&mut c, "shop.testnet", "A123", &x["injection"]);
+    let bytes = b64(&x["injection"], "response_b64");
+    let p = c.preview_claim(acc("shop.testnet"), "A123".into(), bytes.clone());
+    assert!(!p.ok);
+    assert_eq!(p.error.as_deref(), Some("ERR_TOKEN_ORDER_MISMATCH"));
+    assert_eq!(p.token_bps, 10000);
+    ctx("alice.testnet", 0);
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.claim(acc("shop.testnet"), "A123".into(), bytes))), "ERR_TOKEN_ORDER_MISMATCH");
+    assert!(get_created_receipts().is_empty());
+    assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "open");
+}
+
+#[test]
+fn a_registered_receipt_cannot_be_overwritten_or_moved_to_another_order() {
+    let mut c = setup(); // honest is filed under A123
+    let x = v();
+    let hash = s(&x["honest"], "response_hash");
+    let stored = c.get_receipt(acc("shop.testnet"), hash.clone()).unwrap();
+    let storage_before = c.storage_balance_of(acc("shop.testnet")).unwrap();
+    let count_before = c.get_order(acc("shop.testnet"), "A123".into()).unwrap().receipt_count;
+    assert_eq!(count_before, 1);
+    // the merchant tries to re-file the same signed text under its other order A124 to revoke the promise
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "A124", &x["honest"])), "ERR_RECEIPT_EXISTS");
+    // and under the same order again
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "A123", &x["honest"])), "ERR_RECEIPT_EXISTS");
+    assert_eq!(c.get_receipt(acc("shop.testnet"), hash).unwrap(), stored);
+    assert_eq!(c.get_receipt(acc("shop.testnet"), s(&x["honest"], "response_hash")).unwrap().order_id, "A123");
+    assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().receipt_count, 1);
+    assert_eq!(c.get_order(acc("shop.testnet"), "A124".into()).unwrap().receipt_count, 1, "A124 only has its own injection receipt");
+    assert_eq!(c.storage_balance_of(acc("shop.testnet")).unwrap(), storage_before);
+    let p = c.preview_claim(acc("shop.testnet"), "A123".into(), b64(&x["honest"], "response_b64"));
+    assert!(p.ok, "{:?}", p);
+}
+
+// ---- tests-5: exact error codes, with receipts that are NOT yet stored ----
+
+#[test]
+fn register_receipt_needs_an_open_order_each_status_has_its_own_code() {
+    let mut c = token_merchant();
+    let x = v();
+    register_order(&mut c, "shop.testnet", "A123", "alice.testnet", 20_000_000, 3000, Some(TUSDC), None);
+    register_receipt(&mut c, "shop.testnet", "A123", &x["honest"]);
+    // paying: the injection reply has never been stored, so only the status guard can refuse it
+    ctx("alice.testnet", 0);
+    drop(c.claim(acc("shop.testnet"), "A123".into(), b64(&x["honest"], "response_b64")));
+    assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "paying");
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "A123", &x["injection"])), "ERR_ORDER_NOT_OPEN");
+    // claimed
+    ctx_result(PromiseResult::Successful(vec![]));
+    c.on_claim_paid(acc("shop.testnet"), "A123".into(), U128(4_000_000), 2000, 2000, s(&x["honest"], "response_hash"));
+    assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "claimed");
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "A123", &x["injection"])), "ERR_ORDER_NOT_OPEN");
+    assert!(c.get_receipt(acc("shop.testnet"), s(&x["injection"], "response_hash")).is_none());
+}
+
+#[test]
+fn register_receipt_on_a_released_order_is_not_open() {
+    let mut c = one_order_no_receipt();
+    let o = register_order(&mut c, "shop.testnet", "G9", "alice.testnet", 2 * NEAR, 3000, None, Some(1000));
+    ctx_at("bob.testnet", 0, o.expires_at_ms.0);
+    c.release_expired(acc("shop.testnet"), "G9".into());
+    // past the expiry AND expired: the status guard answers first
+    panics_with(std::panic::AssertUnwindSafe(|| try_register(&mut c, "shop.testnet", "G9", &v()["honest"])), "ERR_ORDER_NOT_OPEN");
+    assert!(c.get_receipt(acc("shop.testnet"), s(&v()["honest"], "response_hash")).is_none());
+}
+
+#[test]
+fn register_receipt_stops_exactly_at_expires_at_ms() {
+    let mut c = one_order_no_receipt();
+    let x = v();
+    let o = register_order(&mut c, "shop.testnet", "G2A", "alice.testnet", 2 * NEAR, 3000, None, Some(1000));
+    // at expires_at_ms the (never stored) honest reply is refused for the expiry, not for a duplicate
+    ctx_at("shop.testnet", 0, o.expires_at_ms.0);
+    panics_with(
+        std::panic::AssertUnwindSafe(|| {
+            c.register_receipt("G2A".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"));
+        }),
+        "ERR_ORDER_EXPIRED",
+    );
+    assert!(c.get_receipt(acc("shop.testnet"), s(&x["honest"], "response_hash")).is_none());
+    // one millisecond earlier the same call succeeds
+    ctx_at("shop.testnet", 0, o.expires_at_ms.0 - 1);
+    let r = c.register_receipt("G2A".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"));
+    assert_eq!(r.order_id, "G2A");
+}
+
+#[test]
+fn claim_stops_exactly_at_expires_at_ms_with_its_own_code() {
+    let mut c = one_order_no_receipt();
+    let x = v();
+    let o = register_order(&mut c, "shop.testnet", "G2C", "alice.testnet", 2 * NEAR, 3000, None, Some(1000));
+    // honest text, bound to G2C (the token says A123, which only matters if the expiry guard is missing)
+    ctx_at("shop.testnet", 0, o.expires_at_ms.0 - 1);
+    let _ = c.register_receipt("G2C".into(), s(&x["honest"], "signed_text"), s(&x["honest"], "signature_hex"), s(&x["honest"], "signer_public_key_hex"));
+    let bytes = b64(&x["honest"], "response_b64");
+    // one ms before the expiry the receipt is found and the token check is what answers
+    ctx_at("alice.testnet", 0, o.expires_at_ms.0 - 1);
+    assert_eq!(c.preview_claim(acc("shop.testnet"), "G2C".into(), bytes.clone()).error.as_deref(), Some("ERR_TOKEN_ORDER_MISMATCH"));
+    // at the boundary the expiry answers, first
+    ctx_at("alice.testnet", 0, o.expires_at_ms.0);
+    assert_eq!(c.preview_claim(acc("shop.testnet"), "G2C".into(), bytes.clone()).error.as_deref(), Some("ERR_ORDER_EXPIRED"));
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.claim(acc("shop.testnet"), "G2C".into(), bytes))), "ERR_ORDER_EXPIRED");
+    assert!(get_created_receipts().is_empty());
+}
+
+#[test]
+fn claim_gas_guard_has_its_own_code_and_a_45_tgas_boundary() {
+    let mut c = token_order_setup();
+    let x = v();
+    let bytes = b64(&x["honest"], "response_b64");
+    for tgas in [30u64, 40, GAS_GUARD - 1] {
+        ctx_gas("alice.testnet", 0, tgas);
+        panics_with(std::panic::AssertUnwindSafe(|| drop(c.claim(acc("shop.testnet"), "A123".into(), bytes.clone()))), "ERR_NOT_ENOUGH_GAS");
+        assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "open");
+    }
+    // (the mock itself meters ~10 Tgas of work before the guard runs, so the passing call needs headroom)
+    ctx_gas("alice.testnet", 0, 60);
+    drop(c.claim(acc("shop.testnet"), "A123".into(), bytes));
+    assert_eq!(c.get_order(acc("shop.testnet"), "A123".into()).unwrap().status, "paying");
+}
+
+#[test]
+fn withdraw_gas_guard_has_its_own_code_and_leaves_the_bond_alone() {
+    let mut c = token_order_setup();
+    for tgas in [30u64, 40, GAS_GUARD - 1] {
+        ctx_gas("shop.testnet", 1, tgas);
+        panics_with(std::panic::AssertUnwindSafe(|| drop(c.withdraw_bond(U128(1_000_000), Some(acc(TUSDC))))), "ERR_NOT_ENOUGH_GAS");
+        assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(20_000_000));
+        assert!(get_created_receipts().is_empty());
+    }
+    ctx_gas("shop.testnet", 1, 60);
+    drop(c.withdraw_bond(U128(1_000_000), Some(acc(TUSDC))));
+    assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(19_000_000));
+}
+
+// ---- tests-6: money paths ----
+
+#[test]
+fn storage_withdraw_sends_exactly_the_requested_amount_to_the_caller() {
+    let mut c = setup();
+    let avail = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
+    assert!(avail > 1000);
+    ctx("shop.testnet", 1);
+    c.storage_withdraw(Some(U128(1000)));
+    let r = get_created_receipts();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].receiver_id, acc("shop.testnet"));
+    assert_eq!(transfer_deposit(&r[0]), 1000);
+    // None = everything that is available, no more
+    let avail = c.storage_balance_of(acc("shop.testnet")).unwrap().available.0;
+    ctx("shop.testnet", 1);
+    let after = c.storage_withdraw(None);
+    let r = get_created_receipts();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].receiver_id, acc("shop.testnet"));
+    assert_eq!(transfer_deposit(&r[0]), avail);
+    assert_eq!(after.available, U128(0));
+    // nothing left: no transfer is created at all
+    ctx("shop.testnet", 1);
+    c.storage_withdraw(None);
+    assert!(get_created_receipts().is_empty());
+    ctx("shop.testnet", 1);
+    c.storage_withdraw(Some(U128(0)));
+    assert!(get_created_receipts().is_empty());
+}
+
+#[test]
+fn storage_withdraw_without_a_balance_is_refused() {
+    let mut c = new_contract(vec![]);
+    ctx("nobody.testnet", 1);
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.storage_withdraw(None))), "ERR_STORAGE_BALANCE");
+}
+
+#[test]
+fn registering_a_merchant_twice_cannot_reset_the_books() {
+    let mut c = setup(); // 1.2 NEAR reserved by two open orders
+    let before = c.get_merchant(acc("shop.testnet")).unwrap();
+    assert_eq!(before.reserved, U128(12 * NEAR / 10));
+    ctx("shop.testnet", 3 * NEAR);
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.register_merchant())), "ERR_MERCHANT_EXISTS");
+    assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap(), before);
+}
+
+#[test]
+fn release_expired_on_a_token_order_frees_the_token_bond_only() {
+    let mut c = token_order_setup();
+    let o = register_order(&mut c, "shop.testnet", "TX1", "alice.testnet", 10_000_000, 3000, Some(TUSDC), Some(1000));
+    // NEAR order too, so a wrong-bond lookup would touch it
+    register_order(&mut c, "shop.testnet", "NX1", "alice.testnet", NEAR, 1000, None, Some(1000));
+    let near_before = c.get_merchant(acc("shop.testnet")).unwrap();
+    let tok_before = c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap();
+    assert_eq!(tok_before.reserved, U128(12_000_000 + 3_000_000));
+    ctx_at("bob.testnet", 0, o.expires_at_ms.0);
+    let rel = c.release_expired(acc("shop.testnet"), "TX1".into());
+    assert_eq!(rel.status, "expired");
+    let tok_after = c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap();
+    assert_eq!(tok_after.reserved, U128(tok_before.reserved.0 - o.liability.0));
+    assert_eq!((tok_after.bond, tok_after.paid_out), (tok_before.bond, tok_before.paid_out));
+    assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap(), near_before, "the NEAR bond is untouched");
+    let e = events();
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0]["event"], "order_expired");
+    assert_eq!(e[0]["data"][0]["token"], TUSDC);
+    assert_eq!(e[0]["data"][0]["released"], "3000000");
+    assert_books(&c, "shop.testnet", Some(TUSDC), &["A123", "A124", "TX1"]);
+    // the freed tUSDC can be withdrawn: bond 20, reserved 12 -> 8 free
+    ctx("shop.testnet", 1);
+    drop(c.withdraw_bond(U128(8_000_000), Some(acc(TUSDC))));
+    assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(12_000_000));
+}
+
+#[test]
+fn only_the_contract_itself_may_run_the_withdraw_callback() {
+    let mut c = token_order_setup();
+    ctx("shop.testnet", 1);
+    drop(c.withdraw_bond(U128(2_000_000), Some(acc(TUSDC))));
+    let before = c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap();
+    // alice calls the callback with a Failed result to mint bond back: the privacy check refuses it
+    testing_env_with_promise_results(build_ctx("alice.testnet", 0, NOW_MS, 300).build(), PromiseResult::Failed);
+    panics_with(
+        std::panic::AssertUnwindSafe(|| {
+            c.on_withdraw_resolved(acc("shop.testnet"), Some(acc(TUSDC)), U128(2_000_000));
+        }),
+        "ERR_NOT_PRIVATE",
+    );
+    assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap(), before);
+}
+
+#[test]
+fn near_withdraw_success_callback_emits_one_event_and_changes_nothing_more() {
+    let mut c = setup();
+    assert!(withdraw_and_callback(&mut c, "shop.testnet", None, NEAR, PromiseResult::Successful(vec![])));
+    assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap().bond, U128(2 * NEAR));
+    let e = events();
+    assert_eq!(e.len(), 1);
+    assert_eq!(e[0]["event"], "bond_withdrawn");
+    assert_eq!(e[0]["data"][0]["token"], Value::Null);
+    assert_eq!(e[0]["data"][0]["amount"], NEAR.to_string());
+    assert_eq!(e[0]["data"][0]["merchant"], "shop.testnet");
+}
+
+#[test]
+fn add_bond_needs_a_deposit_and_an_existing_merchant() {
+    let mut c = setup();
+    let before = c.get_merchant(acc("shop.testnet")).unwrap();
+    ctx("shop.testnet", 0);
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.add_bond())), "ERR_ZERO_DEPOSIT");
+    assert_eq!(c.get_merchant(acc("shop.testnet")).unwrap(), before);
+    ctx("stranger.testnet", NEAR);
+    panics_with(std::panic::AssertUnwindSafe(|| drop(c.add_bond())), "ERR_NOT_MERCHANT");
+    ctx("shop.testnet", 7);
+    assert_eq!(c.add_bond().bond.0, before.bond.0 + 7);
+}
+
+#[test]
+fn max_bps_must_be_between_1_and_10000() {
+    let mut c = setup();
+    for bps in [0u16, 10_001, u16::MAX] {
+        panics_with(
+            std::panic::AssertUnwindSafe(|| {
+                register_order(&mut c, "shop.testnet", "B1", "alice.testnet", NEAR, bps, None, None);
+            }),
+            "ERR_MAX_BPS",
+        );
+    }
+    assert!(c.get_order(acc("shop.testnet"), "B1".into()).is_none());
+    register_order(&mut c, "shop.testnet", "B1", "alice.testnet", NEAR, 10_000, None, None);
+    register_order(&mut c, "shop.testnet", "B2", "alice.testnet", 20_000, 1, None, None);
 }

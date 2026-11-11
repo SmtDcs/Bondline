@@ -158,4 +158,33 @@ mod tests {
         assert_eq!(parse_promise(&c).unwrap().bps, 5);
         assert_eq!(extract_content(b"not json"), Err("ERR_RESPONSE_JSON"));
     }
+
+    /// The same table app/test/promise.test.mjs runs against the JS mirror (tests-9): one file, two parsers.
+    #[test]
+    fn shared_parser_vectors() {
+        use near_sdk::base64::{engine::general_purpose::STANDARD, Engine};
+        use near_sdk::serde_json::Value;
+        let file: Value = near_sdk::serde_json::from_str(include_str!("../tests/parser_vectors.json")).unwrap();
+        let cases = file["cases"].as_array().unwrap();
+        assert!(cases.len() >= 30);
+        let mut wrong = Vec::new();
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let bytes = match case["response_json"].as_str() {
+                Some(j) => j.as_bytes().to_vec(),
+                None => STANDARD.decode(case["response_b64"].as_str().unwrap()).unwrap(),
+            };
+            let got = extract_content(&bytes).and_then(|c| parse_promise(&c));
+            let expect = &case["expect"];
+            let matches = match (&got, expect.get("error").and_then(|e| e.as_str())) {
+                (Err(e), Some(want)) => *e == want,
+                (Ok(p), None) => p.order_id == expect["order_id"].as_str().unwrap() && p.bps as u64 == expect["bps"].as_u64().unwrap(),
+                _ => false,
+            };
+            if !matches {
+                wrong.push(format!("{name}: got {got:?}, expected {expect}"));
+            }
+        }
+        assert!(wrong.is_empty(), "parser vectors disagree:\n{}", wrong.join("\n"));
+    }
 }

@@ -101,9 +101,15 @@ export function describeOutcome(outcome) {
   const total = receipts.reduce((a, r) => a + BigInt(r.gas_burnt), BigInt(txGas));
   const status = outcome.status ?? {};
   const failed = 'Failure' in status;
+  // Who signed, who was called and which method: read from the transaction itself so a replay can compare them.
+  const tx = outcome.transaction;
+  const txCalls = (tx?.actions ?? []).map(a => a.FunctionCall?.method_name).filter(Boolean);
   return {
     tx_hash: txHash,
     explorer: txHash ? explorerTx(txHash) : null,
+    ...(tx?.signer_id ? { signer: tx.signer_id } : {}),
+    ...(tx?.receiver_id ? { receiver: tx.receiver_id } : {}),
+    ...(txCalls.length ? { method: txCalls.join('+') } : {}),
     ok: !failed,
     error: failed ? failureText(status.Failure) : null,
     value: failed ? undefined : decodeSuccess(status),

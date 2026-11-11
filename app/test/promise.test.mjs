@@ -24,3 +24,26 @@ test('content only, reasoning ignored', () => {
   assert.equal(parsePromise(extractContent(r).content).bps, 5);
   assert.equal(extractContent(new TextEncoder().encode('not json')).error, 'ERR_RESPONSE_JSON');
 });
+
+// tests-9: the SAME vectors the Rust parser runs (contract-v2/src/parse.rs, shared_parser_vectors).
+import fs from 'node:fs';
+const VECTORS = JSON.parse(fs.readFileSync(new URL('../../contract-v2/tests/parser_vectors.json', import.meta.url), 'utf8'));
+
+test('JS mirror gives the same answer as the Rust parser on every shared vector', () => {
+  assert.ok(VECTORS.cases.length >= 30);
+  const wrong = [];
+  for (const c of VECTORS.cases) {
+    const bytes = c.response_json !== undefined ? new TextEncoder().encode(c.response_json) : Buffer.from(c.response_b64, 'base64');
+    const ex = extractContent(bytes);
+    const got = ex.error ? ex : parsePromise(ex.content);
+    const want = c.expect.error ? { error: c.expect.error } : { orderId: c.expect.order_id, bps: c.expect.bps };
+    try { assert.deepEqual(got, want); } catch { wrong.push(`${c.name}: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`); }
+  }
+  assert.deepEqual(wrong, []);
+});
+
+test('the vectors cover the cases the two parsers used to disagree on', () => {
+  const names = VECTORS.cases.map(c => c.name).join('\n');
+  for (const needle of ['empty choices', 'second choice has no message', 'duplicate content key', 'content null', 'content is a number', 'only inside reasoning_content', 'two tokens', 'leading zero', 'followed by a digit', 'lone high surrogate', '33 chars'])
+    assert.ok(names.includes(needle), needle);
+});

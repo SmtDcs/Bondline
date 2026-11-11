@@ -26,7 +26,7 @@ function tmpBundle(t) {
   return file;
 }
 
-async function stubV2(t, { marketRegistered = true } = {}) {
+async function stubV2(t, { marketRegistered = true, answers = {} } = {}) {
   const calls = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -34,13 +34,15 @@ async function stubV2(t, { marketRegistered = true } = {}) {
     req.on('end', () => {
       const params = JSON.parse(body).params;
       calls.push({ account: params.account_id, method: params.method_name, args: JSON.parse(Buffer.from(params.args_base64, 'base64').toString('utf8')) });
-      const value = {
+      const happy = {
         get_config: { api: 2, owner: 'v2.cbp-sm1110.testnet', allowed_tokens: [TOKEN], min_order_ttl_ms: '120000' },
         get_signer: { kind: 'provider_tee', model_id: REAL.model, attestation_sha256: ATT_SHA, added_at_ms: '1', expires_at_ms: String(Date.now() + 86_400_000) },
         get_receipt: { order_id: REAL.order_id, merchant: MERCHANT, token: TOKEN, order_amount: '20000000', block_height: 1 },
         storage_balance_of: marketRegistered ? { total: '1250000000000000000000', available: '1250000000000000000000' } : null,
         preview_claim: { ok: true, token_bps: 2000, paid_bps: 2000, payout: '4000000', token: TOKEN },
       }[params.method_name];
+      // tests-8: a per-test answer replaces the happy-path one (null is a valid answer: "no such receipt")
+      const value = Object.hasOwn(answers, params.method_name) ? answers[params.method_name] : happy;
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { result: [...Buffer.from(JSON.stringify(value))], logs: [], block_height: 1, block_hash: '11111111111111111111111111111111' } }));
     });
@@ -89,5 +91,56 @@ test('a market that is not registered on the token is NOT VERIFIED', async (t) =
   const r = await runAsync([tmpBundle(t), '--rpc', rpc.url, '--contract', 'v2.cbp-sm1110.testnet', '--merchant', MERCHANT]);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /^FAIL  market is registered on tusdc\.testnet \(storage_balance_of\)  null: deposit storage on the token/m);
+  assert.equal(lastLine(r.out), 'NOT VERIFIED');
+});
+
+// ---- tests-8: the tool must be able to say NOT VERIFIED for the on-chain rows ----
+
+const verifyWith = async (t, answers) => {
+  const rpc = await stubV2(t, { answers });
+  return runAsync([tmpBundle(t), '--rpc', rpc.url, '--contract', 'v2.cbp-sm1110.testnet', '--merchant', MERCHANT]);
+};
+
+test('no receipt on chain for these bytes: NOT A PROMISE, NOT VERIFIED', async (t) => {
+  const r = await verifyWith(t, { get_receipt: null });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /^FAIL  receipt on chain for these bytes \(get_receipt\)  null: NOT A PROMISE$/m);
+  assert.equal(lastLine(r.out), 'NOT VERIFIED');
+});
+
+test('a receipt filed under another order is NOT VERIFIED', async (t) => {
+  const r = await verifyWith(t, { get_receipt: { order_id: 'OTHER', merchant: MERCHANT, token: TOKEN, order_amount: '20000000', block_height: 1 } });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /^FAIL  receipt on chain for these bytes \(get_receipt\)  order OTHER/m);
+  assert.equal(lastLine(r.out), 'NOT VERIFIED');
+});
+
+test('a preview_claim the contract would refuse is NOT VERIFIED', async (t) => {
+  for (const error of ['ERR_RECEIPT_ORDER_MISMATCH', 'ERR_ORDER_EXPIRED', 'ERR_TOKEN_ORDER_MISMATCH', 'ERR_NO_RECEIPT_FOR_BYTES']) {
+    const r = await verifyWith(t, { preview_claim: { ok: false, error, token_bps: 0, paid_bps: 0, payout: '0' } });
+    assert.equal(r.status, 1, `${error}\n${r.out}`);
+    assert.match(r.out, new RegExp(`^FAIL  preview_claim  .*${error}`, 'm'), error);
+    assert.equal(lastLine(r.out), 'NOT VERIFIED', error);
+  }
+});
+
+test('an already-claimed order is still VERIFIED: the promise was kept', async (t) => {
+  const r = await verifyWith(t, { preview_claim: { ok: false, error: 'ERR_ALREADY_CLAIMED', token_bps: 0, paid_bps: 0, payout: '0' } });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /^PASS  preview_claim  .*ERR_ALREADY_CLAIMED/m);
+  assert.equal(lastLine(r.out), 'VERIFIED');
+});
+
+test('a signer the contract does not know is NOT VERIFIED', async (t) => {
+  const r = await verifyWith(t, { get_signer: null });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /^FAIL  /m);
+  assert.equal(lastLine(r.out), 'NOT VERIFIED');
+});
+
+test('a receipt whose token is not in allowed_tokens is NOT VERIFIED', async (t) => {
+  const r = await verifyWith(t, { get_receipt: { order_id: REAL.order_id, merchant: MERCHANT, token: 'evil.testnet', order_amount: '20000000', block_height: 1 } });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /^FAIL  receipt token is in get_config\(\)\.allowed_tokens  evil\.testnet in \[tusdc\.testnet\]$/m);
   assert.equal(lastLine(r.out), 'NOT VERIFIED');
 });

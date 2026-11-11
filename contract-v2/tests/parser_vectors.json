@@ -1,0 +1,361 @@
+{
+ "_doc": "Shared by contract-v2/src/parse.rs (include_str) and app/test/promise.test.mjs. Each case is a full chat-completions body; expect is {order_id,bps} or {error}. Rust is the authority; the JS mirror must give the same answer.",
+ "cases": [
+  {
+   "name": "plain content",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "token at the end of a longer reply",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"Sorry about the mug.\\nPROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "reasoning_content is ignored, content is used",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\",\"reasoning_content\":\"PROMISE|refund|order=A1|bps=9\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "unknown fields everywhere are ignored",
+   "response_json": "{\"id\":\"x\",\"usage\":{\"a\":1},\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"message\":{\"role\":\"assistant\",\"content\":\"PROMISE|refund|order=A1|bps=5\",\"tool_calls\":[]}}],\"extra\":null}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "second choice is never read, even when it has no message",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}},{\"message\":{\"content\":\"x\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "bps with a leading zero is the number 20",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=020\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 20
+   }
+  },
+  {
+   "name": "bps stops at the first non-digit",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=10000x\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 10000
+   }
+  },
+  {
+   "name": "order id of exactly 32 chars",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA|bps=7\"}}]}",
+   "expect": {
+    "order_id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "bps": 7
+   }
+  },
+  {
+   "name": "escaped newline and unicode before the token",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"caf\\u00e9\\n\\u2713 PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "not json",
+   "response_json": "not json",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "empty body",
+   "response_json": "",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "trailing garbage after the object",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}}]} x",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "choices missing",
+   "response_json": "{\"id\":\"x\"}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "choices is not an array",
+   "response_json": "{\"choices\":{}}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "empty choices",
+   "response_json": "{\"choices\":[]}",
+   "expect": {
+    "error": "ERR_RESPONSE_NO_CHOICE"
+   }
+  },
+  {
+   "name": "first choice has no message",
+   "response_json": "{\"choices\":[{}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "second choice has no message (serde reads every element)",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}},{}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "message without content",
+   "response_json": "{\"choices\":[{\"message\":{}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_NO_CONTENT"
+   }
+  },
+  {
+   "name": "content null",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":null}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_NO_CONTENT"
+   }
+  },
+  {
+   "name": "content is a number",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":7}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "content is an object",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":{\"a\":1}}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "duplicate content key",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\",\"content\":\"PROMISE|refund|order=A1|bps=9\"}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "duplicate choices key",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}}],\"choices\":[]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "duplicate message key",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"a\"},\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "lone high surrogate escape in a string",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5 \\ud800\"}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "token only inside reasoning_content",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"no token here\",\"reasoning_content\":\"PROMISE|refund|order=A1|bps=9\"}}]}",
+   "expect": {
+    "error": "ERR_NO_PROMISE_TOKEN"
+   }
+  },
+  {
+   "name": "two tokens",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5 PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_MULTIPLE_PROMISE_TOKENS"
+   }
+  },
+  {
+   "name": "two tokens, the second one is cut",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5 PROMISE|\"}}]}",
+   "expect": {
+    "error": "ERR_MULTIPLE_PROMISE_TOKENS"
+   }
+  },
+  {
+   "name": "wrong word",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|discount|order=A1|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_GRAMMAR"
+   }
+  },
+  {
+   "name": "no bps separator",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_GRAMMAR"
+   }
+  },
+  {
+   "name": "order id with a space",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A 1|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_ORDER_ID"
+   }
+  },
+  {
+   "name": "empty order id",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_ORDER_ID"
+   }
+  },
+  {
+   "name": "order id of 33 chars",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_ORDER_ID"
+   }
+  },
+  {
+   "name": "bps zero",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=0\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_BPS"
+   }
+  },
+  {
+   "name": "bps 10001",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=10001\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_BPS"
+   }
+  },
+  {
+   "name": "bps 10000 followed by a digit is six digits",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=100001\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_BPS"
+   }
+  },
+  {
+   "name": "bps not a number",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=x\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_BPS"
+   }
+  },
+  {
+   "name": "bps missing at the end",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=\"}}]}",
+   "expect": {
+    "error": "ERR_TOKEN_BPS"
+   }
+  },
+  {
+   "name": "invalid UTF-8 byte in the body",
+   "response_b64": "eyJjaG9pY2VzIjpbeyJtZXNzYWdlIjp7ImNvbnRlbnQiOiL/In19XX0=",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "a float literal that overflows f64 in an ignored field is accepted",
+   "response_json": "{\"x\":1e999,\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "a leading zero number in an ignored field",
+   "response_json": "{\"x\":01,\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "struct given as arrays is read positionally by serde (choices, message, content)",
+   "response_json": "[[[[\"PROMISE|refund|order=A1|bps=5\"]]]]",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "positional struct with a missing element",
+   "response_json": "[[[[]]]]",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "positional struct with an extra element",
+   "response_json": "[[[[\"PROMISE|refund|order=A1|bps=5\"]],1]]",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "escaped key name still matches",
+   "response_json": "{\"cho\\u0069ces\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "surrogate pair escape is fine",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"\\ud83d\\ude00 PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "order_id": "A1",
+    "bps": 5
+   }
+  },
+  {
+   "name": "lone low surrogate escape",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"\\ude00 PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "raw control character in a string",
+   "response_json": "{\"choices\":[{\"message\":{\"content\":\"a\tb PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  },
+  {
+   "name": "byte order mark before the object",
+   "response_json": "﻿{\"choices\":[{\"message\":{\"content\":\"PROMISE|refund|order=A1|bps=5\"}}]}",
+   "expect": {
+    "error": "ERR_RESPONSE_JSON"
+   }
+  }
+ ]
+}
