@@ -10,10 +10,12 @@ import fs from 'node:fs';
 import { checkBundle } from './lib/nearai.mjs';
 import { loadAttestations, attestedRow, signerRows, resolveContract, PINNED_CONTRACT } from './lib/attestation.mjs';
 import { detectApi, receiptArgs, previewClaimArgs } from './lib/contract-api.mjs';
+import { positionalArgs, flagValue } from './lib/cli-args.mjs';
 
 const args = process.argv.slice(2);
-const file = args.find(a => !a.startsWith('--'));
-const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+// The bundle is the first positional argument: the VALUE of --contract/--rpc/--merchant is never mistaken for it.
+const file = positionalArgs(args, ['--contract', '--rpc', '--merchant'])[0];
+const flag = (n) => flagValue(args, n);
 if (!file) { console.error('usage: node app/verify.mjs <bundle.json> [--offline] [--contract id] [--rpc url]'); process.exit(2); }
 const bundle = JSON.parse(fs.readFileSync(file, 'utf8'));
 const rows = checkBundle(bundle);
@@ -23,6 +25,7 @@ const records = loadAttestations();
 if (!simulated) rows.push(attestedRow(bundle, records));
 else console.log('SIMULATED  bundle.simulated=true: signed with a fake, publicly known key; this proves nothing about a TEE');
 
+let missingInput = false;
 if (!args.includes('--offline')) {
   try {
     const { makeProvider, view } = await import('./lib/near.mjs');
@@ -35,39 +38,47 @@ if (!args.includes('--offline')) {
     // from the bundle (a forged bundle could name any merchant).
     const merchant = flag('--merchant') ?? process.env.MERCHANT_ID ?? null;
     const api = await detectApi(provider, contractId);
-    let config = null;
-    if (api === 2) {
-      config = await view(provider, contractId, 'get_config', {});
-      if (!merchant) throw new Error('a v2 contract keys receipts by merchant: pass --merchant <id> or set MERCHANT_ID');
+    if (api === 2 && !merchant) {
+      // Its own row (client-6): this is a missing input, not a network problem.
+      rows.push({ check: 'merchant given (a v2 contract keys receipts by merchant)', ok: false, detail: 'pass --merchant <id> or set MERCHANT_ID; the on-chain checks were not run' });
+      missingInput = true;
     }
-    const signer = await view(provider, contractId, 'get_signer', { public_key_hex: bundle.signature.signing_address });
-    // Simulated keys have no attestation record: only the registration row applies.
-    rows.push(...(simulated ? signerRows(signer, bundle, records).slice(0, 4) : signerRows(signer, bundle, records)));
-    const receipt = await view(provider, contractId, 'get_receipt', receiptArgs(api, merchant, bundle.response_hash));
-    if (api === 2 && receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
-    if (api === 2) {
-      const allowed = config?.allowed_tokens ?? [];
-      for (const tokenId of allowed) {
-        const balance = await view(provider, tokenId, 'storage_balance_of', { account_id: contractId });
+    if (!missingInput) {
+      const config = api === 2 ? await view(provider, contractId, 'get_config', {}) : null;
+      const signer = await view(provider, contractId, 'get_signer', { public_key_hex: bundle.signature.signing_address });
+      const receipt = await view(provider, contractId, 'get_receipt', receiptArgs(api, merchant, bundle.response_hash));
+      // The signer is judged at the receipt's registration time (client-4), not by today's clock.
+      // Simulated keys have no attestation record: only the registration rows apply.
+      rows.push(...(simulated ? signerRows(signer, bundle, records, Date.now(), receipt).slice(0, 4) : signerRows(signer, bundle, records, Date.now(), receipt)));
+      if (api === 2 && receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
+      if (api === 2) {
+        const allowed = config?.allowed_tokens ?? [];
+        for (const tokenId of allowed) {
+          const balance = await view(provider, tokenId, 'storage_balance_of', { account_id: contractId });
+          rows.push({
+            check: `market is registered on ${tokenId} (storage_balance_of)`,
+            ok: balance !== null && balance !== undefined,
+            detail: balance ? 'registered' : 'null: deposit storage on the token before a token order',
+          });
+        }
         rows.push({
-          check: `market is registered on ${tokenId} (storage_balance_of)`,
-          ok: balance !== null && balance !== undefined,
-          detail: balance ? 'registered' : 'null: deposit storage on the token before a token order',
+          check: 'receipt token is in get_config().allowed_tokens',
+          ok: receipt?.token == null || allowed.includes(receipt.token),
+          detail: receipt?.token == null ? 'NEAR (always allowed)' : `${receipt.token} in [${allowed.join(', ')}]`,
         });
       }
-      rows.push({
-        check: 'receipt token is in get_config().allowed_tokens',
-        ok: receipt?.token == null || allowed.includes(receipt.token),
-        detail: receipt?.token == null ? 'NEAR (always allowed)' : `${receipt.token} in [${allowed.join(', ')}]`,
-      });
+      rows.push({ check: 'receipt on chain for these bytes (get_receipt)', ok: !!receipt && receipt.order_id === bundle.order_id, detail: receipt ? `order ${receipt.order_id} block ${receipt.block_height}` : 'null: NOT A PROMISE' });
+      const preview = await view(provider, contractId, 'preview_claim', previewClaimArgs(api, merchant, bundle.order_id, bundle.response_b64));
+      rows.push({ check: 'preview_claim', ok: preview.ok || preview.error === 'ERR_ALREADY_CLAIMED', detail: JSON.stringify(preview) });
     }
-    rows.push({ check: 'receipt on chain for these bytes (get_receipt)', ok: !!receipt && receipt.order_id === bundle.order_id, detail: receipt ? `order ${receipt.order_id} block ${receipt.block_height}` : 'null: NOT A PROMISE' });
-    const preview = await view(provider, contractId, 'preview_claim', previewClaimArgs(api, merchant, bundle.order_id, bundle.response_b64));
-    rows.push({ check: 'preview_claim', ok: preview.ok || preview.error === 'ERR_ALREADY_CLAIMED', detail: JSON.stringify(preview) });
   } catch (e) {
     const cause = e?.cause?.code ?? e?.cause?.message;
     const detail = `${e?.message ?? e}${cause ? ` (${cause})` : ''}`.split('\n')[0];
-    rows.push({ check: 'testnet RPC unreachable', ok: false, detail: `${detail} - rerun with --offline for the off-chain checks only` });
+    // `RPC unreachable` only for network-shaped errors (client-6); any other error in the on-chain block is named as such.
+    const network = !!cause || /fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|EAI_AGAIN|socket|network|timed? ?out/i.test(String(e?.message ?? e));
+    rows.push(network
+      ? { check: 'testnet RPC unreachable', ok: false, detail: `${detail} - rerun with --offline for the off-chain checks only` }
+      : { check: 'on-chain check failed', ok: false, detail });
   }
 }
 

@@ -13,6 +13,8 @@ const REPLAY_CLAIMED = new Set(); // T19: orders claimed so far in the offline r
 let TAMPERED_ROW = null; // the bubble the shopper last clicked Tamper on: the merchant's edit targets it
 
 const BOND_REFRESH_MS = 10_000;
+/** client-9: views retried right after a registered receipt (a lagging RPC node answers null). Tests shrink it. */
+export const BINDING_RETRY = { retries: 4, delayMs: 1500, recheckRetries: 2 };
 // T16: the merchant's "register edited reply" attempt rewrites the token in the reply bytes.
 const EDIT_FROM = 'bps=2000';
 const EDIT_TO = 'bps=3000';
@@ -27,8 +29,10 @@ export function tokenMetaFor(tokenId, tokens = CFG?.tokens) {
 
 /** Raw units in the asset's display form: `4 tUSDC`, or the v1 NEAR display (3 decimals). */
 export function formatAsset(raw, tokenId, tokens = CFG?.tokens) {
+  if (!tokenId) return `${yoctoToNear(raw ?? 0)} NEAR`;
   const meta = tokenMetaFor(tokenId, tokens);
-  if (!meta) return `${yoctoToNear(raw ?? 0)} NEAR`;
+  // client-1: a token with no metadata is never shown as NEAR (4 tUSDC would read `0.000 NEAR`): say what it is.
+  if (!meta) return `${String(raw ?? 0)} raw units of ${tokenId} (no token metadata)`;
   return `${formatAmount(String(raw ?? 0), meta.decimals)} ${meta.symbol}`;
 }
 
@@ -61,12 +65,32 @@ export async function sha256Hex(bytes) {
 export const yoctoToNear = (y) => (Number(BigInt(y) / 10n ** 21n) / 1000).toFixed(3);
 
 /** FROZEN BINDING rule (INTERFACES 4): receipt exists AND preview_claim.ok */
-export async function bindingStatus(orderId, responseB64, recordedViews) {
+export async function bindingStatus(orderId, responseB64, recordedViews, { retries = 0, delayMs = BINDING_RETRY.delayMs } = {}) {
   if (OFFLINE && recordedViews) return { receipt: recordedViews.get_receipt, preview: recordedViews.preview_claim };
   const hash = await sha256Hex(b64ToBytes(responseB64));
-  const receipt = await rpcView('get_receipt', receiptArgs(hash));
+  // client-9: right after a successful register_receipt the public load-balanced RPC may answer from a node a
+  // block behind (get_receipt null) or drop the call. The caller that knows a receipt was just registered asks
+  // for a few retries; a null receipt is a real "NOT A PROMISE" only after they are used up.
+  let receipt = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      receipt = await rpcView('get_receipt', receiptArgs(hash));
+    } catch (err) {
+      if (attempt >= retries) throw err;
+    }
+    if (receipt || attempt >= retries) break;
+    await new Promise(r => setTimeout(r, delayMs));
+  }
   const preview = await rpcView('preview_claim', previewArgs(orderId, responseB64));
   return { hash, receipt, preview };
+}
+
+/** client-1: the asset of an order comes from the chain's own answer (preview_claim / claim result / receipt,
+ *  all v2 views carry `token`, null = NEAR), not from the startup snapshot in /api/config. `fallback` (the
+ *  config's token) is used only when the answer has no `token` field at all (v1, or an old recorded view). */
+export function chainToken(answer, fallback = null) {
+  if (answer && typeof answer === 'object' && 'token' in answer) return answer.token ?? null;
+  return fallback ?? null;
 }
 
 /** Remaining time next to BINDING; `EXPIRED` at or after the deadline. */
@@ -93,7 +117,9 @@ export function payoutFailedText(tokenId, tokens = CFG?.tokens) {
   return `ERR_PAYOUT_FAILED${meta ? ` · retry after registering on ${meta.symbol}` : ''}`;
 }
 
-export function badgeText({ receipt, preview, tokenId, expiresAtMs, nowMs }) {
+export function badgeText({ receipt, preview, tokenId: configTokenId, expiresAtMs, nowMs }) {
+  // client-1: the chain's answer decides the asset; the config's token is only a fallback.
+  const tokenId = receipt && preview ? chainToken(preview, chainToken(receipt, configTokenId)) : configTokenId;
   if (!receipt) return { cls: 'error', text: 'NOT A PROMISE (no receipt on chain)' };
   if (!preview.ok) {
     if (preview.error === 'ERR_ORDER_EXPIRED') return { cls: 'expired', text: 'EXPIRED' };
@@ -115,7 +141,10 @@ export async function loadConfig(url = '/api/config') {
 /** T19: the orange badge on the replay server; the date is the transcript's recorded_at. */
 export function replayBadgeText(transcript) {
   const date = typeof transcript?.recorded_at === 'string' ? transcript.recorded_at.slice(0, 10) : '';
-  return date ? `REPLAY of a real testnet run recorded ${date}` : 'REPLAY of a real testnet run';
+  const base = date ? `REPLAY of a real testnet run recorded ${date}` : 'REPLAY of a real testnet run';
+  // client-2: the chat-time badges, the Tamper results and the pre-claim meter were recomputed after the run from the
+  // recorded bytes and chain data (the recorder ran after the claims); say so instead of calling them recorded answers.
+  return transcript?.computed_views === true ? `${base} · BINDING/Tamper badges and the pre-claim meter recomputed from the recorded bytes` : base;
 }
 
 /** T19: the recorded message for an order (the input is pre-filled with it in replay mode). */
@@ -148,7 +177,8 @@ export function replayMeterView(transcript, claimed) {
     reserved += BigInt(order.liability);
     paid -= BigInt(c.result.payout);
   }
-  return { ...final, bond: bond.toString(), reserved: reserved.toString(), paid_out: paid.toString() };
+  // rolled back from the final view by arithmetic, like the recorder's pre-claim meter: marked computed
+  return { ...final, bond: bond.toString(), reserved: reserved.toString(), paid_out: paid.toString(), computed: true };
 }
 
 /** T19: the last recorded get_merchant is the final post-run view, shown after a claim. */
@@ -429,11 +459,13 @@ async function claim(row, btn) {
       showToast(text, null, 'toast error');
       return;
     }
-    showToast(claimToastText(data.result.payout, row.tokenId), data.explorer);
+    // client-1: the claim result names the token that actually moved (null = NEAR); the page's earlier guess is a fallback.
+    const paidToken = chainToken(data.result, row.tokenId);
+    showToast(claimToastText(data.result.payout, paidToken), data.explorer);
     // A paid claim is a success: say so in green. (Re-reading preview_claim here returned ERR_ALREADY_CLAIMED,
     // which showed a red error right after a successful payout.) A second click still shows the contract's
     // ERR_ALREADY_CLAIMED from the failed second claim.
-    setBadge(row.statusBadge, { cls: 'binding', text: `CLAIMED · ${claimToastText(data.result.payout, row.tokenId)}` });
+    setBadge(row.statusBadge, { cls: 'binding', text: `CLAIMED · ${claimToastText(data.result.payout, paidToken)}` });
   } catch (err) {
     failed = true;
     showToast(err.message, null, 'toast error');
@@ -519,6 +551,43 @@ async function onRegisterEdited() {
   }
 }
 
+/** The BINDING check of one bot bubble (INTERFACES 4) plus the Claim button. Re-runnable: when the check ends in
+ *  anything but BINDING the bubble gets a `Re-check` button (a lagging RPC node or a dropped call must not force a
+ *  new paid chat message). */
+async function checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries = 0 }) {
+  bot.row.recheckButton?.remove?.();
+  bot.row.recheckButton = null;
+  let view;
+  try {
+    const views = await bindingStatus(orderId, data.bundle.response_b64, data.views, { retries });
+    if (views.receipt && views.preview) tokenId = chainToken(views.preview, chainToken(views.receipt, tokenId));
+    bot.row.tokenId = tokenId;
+    view = badgeText({ ...views, tokenId, expiresAtMs });
+    setBadge(bot.status, view);
+    if (view.cls === 'binding') {
+      addClaim(bot.row);
+      // NEP-145: say it next to BINDING when the buyer has no storage on the token. Never block the claim:
+      // the contract cannot know, and a failed payout is safe (the order stays open for a retry).
+      if (tokenId && isV2()) {
+        const balance = await rpcView('storage_balance_of', { account_id: CFG.buyerId }, tokenId).catch(() => undefined);
+        if (balance === null) {
+          const notice = buyerRegistrationNotice(tokenMetaFor(tokenId), CFG.buyerId);
+          if (notice) bot.meta.append(element('span', 'badge warning', notice));
+        }
+      }
+    }
+  } catch (err) {
+    view = { cls: 'error', text: err.message };
+    setBadge(bot.status, view);
+  }
+  if (view.cls !== 'binding' && !(OFFLINE && CFG?.mode === 'replay')) {
+    const btn = element('button', 'recheck', 'Re-check');
+    btn.addEventListener('click', () => checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries: BINDING_RETRY.recheckRetries }));
+    bot.row.recheckButton = btn;
+    bot.meta.append(btn);
+  }
+}
+
 async function onSubmit(event) {
   event.preventDefault();
   const input = $('chat-input');
@@ -526,8 +595,10 @@ async function onSubmit(event) {
   if (!message) return;
   const orderId = $('order-select').value;
   const orderCfg = configOrder(orderId);
-  const tokenId = orderCfg?.token ?? null;
-  const expiresAtMs = orderCfg?.expires_at_ms ?? null;
+  let tokenId = orderCfg?.token ?? null; // a startup snapshot: replaced by the chain's answer below
+  // The offline replay's recorded expiry is long past: counting it against today's clock would show EXPIRED
+  // on a recorded BINDING badge. The replay shows the recorded answer, not a live countdown.
+  const expiresAtMs = OFFLINE && CFG.mode === 'replay' ? null : (orderCfg?.expires_at_ms ?? null);
   const log = $('chat-log');
   log.append(messageRow('user', message));
   const bot = botMessage();
@@ -560,21 +631,8 @@ async function onSubmit(event) {
     updateRegisterEdited();
     // T17: every bot bubble can be tampered with, whatever the BINDING check said.
     addTamper(bot.row);
-    const views = await bindingStatus(orderId, data.bundle.response_b64, data.views);
-    const view = badgeText({ ...views, tokenId, expiresAtMs });
-    setBadge(bot.status, view);
-    if (view.cls === 'binding') {
-      addClaim(bot.row);
-      // NEP-145: say it next to BINDING when the buyer has no storage on the token. Never block the claim:
-      // the contract cannot know, and a failed payout is safe (the order stays open for a retry).
-      if (tokenId && isV2()) {
-        const balance = await rpcView('storage_balance_of', { account_id: CFG.buyerId }, tokenId).catch(() => undefined);
-        if (balance === null) {
-          const notice = buyerRegistrationNotice(tokenMetaFor(tokenId), CFG.buyerId);
-          if (notice) bot.meta.append(element('span', 'badge warning', notice));
-        }
-      }
-    }
+    // The relayer returned a register_tx, so the receipt exists on chain: retry the views while a lagging node says null.
+    await checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries: data.register_tx && !OFFLINE ? BINDING_RETRY.retries : 0 });
   } catch (err) {
     setBadge(bot.status, { cls: 'error', text: err.message });
     updateRegisterEdited();

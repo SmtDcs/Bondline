@@ -61,12 +61,25 @@ if [ "$V2" = "1" ] && [ "$ASSET" = "near" ]; then
   NEAR_AMOUNT_YOCTO="${NEAR_AMOUNT_YOCTO:-2000000000000000000000000}"   # 2 NEAR
   STORAGE_DEPOSIT="${STORAGE_DEPOSIT:-0.5 NEAR}"
   NEAR_ARGS=(network-config testnet sign-with-legacy-keychain send)
-  run near contract call-function as-transaction "$CONTRACT_ID" storage_deposit \
-    json-args "{\"account_id\":\"$MERCHANT_ID\"}" prepaid-gas '30 Tgas' attached-deposit "$STORAGE_DEPOSIT" \
-    sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
-  # register_merchant answers ERR_MERCHANT_EXISTS the second time; a DRY_RUN just prints it
-  run near contract call-function as-transaction "$CONTRACT_ID" register_merchant json-args '{}' \
-    prepaid-gas '30 Tgas' attached-deposit '3 NEAR' sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
+  # client-8: a merchant that already has its NEAR bond (a second run, or the repo's shop account) must not be
+  # registered again: register_merchant would fail ERR_MERCHANT_EXISTS and `set -e` would stop before the orders are
+  # registered (and storage_deposit would add another 0.5 NEAR each run). Same get_merchant guard as the v1 branch;
+  # captured once, so a network error aborts instead of reading as "merchant missing". DRY_RUN prints the commands.
+  MERCHANT_EXISTS=0
+  if [ "$DRY_RUN" != "1" ]; then
+    EXISTING=$(near contract call-function as-read-only "$CONTRACT_ID" get_merchant \
+      json-args "{\"merchant\":\"$MERCHANT_ID\"}" network-config testnet now)
+    if [[ "$EXISTING" == *'"bond"'* ]]; then MERCHANT_EXISTS=1; fi
+  fi
+  if [ "$MERCHANT_EXISTS" = "1" ]; then
+    echo "$MERCHANT_ID already has a NEAR bond on $CONTRACT_ID: skipping storage_deposit and register_merchant"
+  else
+    run near contract call-function as-transaction "$CONTRACT_ID" storage_deposit \
+      json-args "{\"account_id\":\"$MERCHANT_ID\"}" prepaid-gas '30 Tgas' attached-deposit "$STORAGE_DEPOSIT" \
+      sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
+    run near contract call-function as-transaction "$CONTRACT_ID" register_merchant json-args '{}' \
+      prepaid-gas '30 Tgas' attached-deposit '3 NEAR' sign-as "$MERCHANT_ID" "${NEAR_ARGS[@]}"
+  fi
   for ID in "A123-$RUN" "A124-$RUN"; do
     run near contract call-function as-transaction "$CONTRACT_ID" register_order \
       json-args "{\"order_id\":\"$ID\",\"buyer\":\"$BUYER_ID\",\"amount\":\"$NEAR_AMOUNT_YOCTO\",\"max_bps\":3000,\"ttl_ms\":\"$TTL_MS\"}" \

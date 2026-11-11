@@ -29,7 +29,8 @@
           "token_bps": 2000,
           "paid_bps": 2000,
           "payout": "400000000000000000000000",
-          "response_hash": "45a4acde25a849a41a4625265e6e034b3a40822950549dd000127b0b73908e51"
+          "response_hash": "45a4acde25a849a41a4625265e6e034b3a40822950549dd000127b0b73908e51",
+          "computed": true
         },
         "get_order": {
           "order_id": "A123-11",
@@ -47,7 +48,8 @@
         "get_merchant": {
           "bond": "8200000000000000000000000",
           "reserved": "6000000000000000000000000",
-          "paid_out": "4800000000000000000000000"
+          "paid_out": "4800000000000000000000000",
+          "computed": true
         },
         "tamper": {
           "response_b64": "eyJpZCI6ImM0M2Q3YTdhNmM3OTQ1MzRiNzIyNjQzMzkxMDJiNzI0Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJJJ20gc29ycnkgdG8gaGVhciB5b3VyIG11ZyBhcnJpdmVkIGJyb2tlbiEgSSBjYW4gb2ZmZXIgeW91IGEgcGFydGlhbCByZWZ1bmQgb2YgMjAwMCBiYXNpcyBwb2ludHMgKDIwJSkgb24gb3JkZXIgQTEyMy0xMSwgd2hpY2ggY29tZXMgdG8gMC40IE5FQVIgb3V0IG9mIHlvdXIgMiBORUFSIHRvdGFsLlxuXG5QUk9NSVNFfHJlZnVuZHxvcmRlcj1BMTIzLTExfGJwcz0zMDAwIn0sImZpbmlzaF9yZWFzb24iOiJzdG9wIiwibG9ncHJvYnMiOm51bGwsIm1hdGNoZWRfc3RvcCI6MTU0ODI3fV0sIm1vZGVsIjoiei1haS9nbG0tNS4zLWZsYXNoIiwiY3JlYXRlZCI6MTc5NDI4NjQyMCwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6MTY5LCJ0b3RhbF90b2tlbnMiOjIzOCwiY29tcGxldGlvbl90b2tlbnMiOjY5LCJwcm9tcHRfdG9rZW5zX2RldGFpbHMiOm51bGwsInJlYXNvbmluZ190b2tlbnMiOjEsImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOnsicmVhc29uaW5nX3Rva2VucyI6MX19fQ==",
@@ -59,7 +61,8 @@
             "token_bps": 0,
             "paid_bps": 0,
             "payout": "0",
-            "response_hash": "84517a05dde96a29d728a5991fb1d7cede3d63202fc4267e28ebb42fc99c80ff"
+            "response_hash": "84517a05dde96a29d728a5991fb1d7cede3d63202fc4267e28ebb42fc99c80ff",
+            "computed": true
           }
         }
       }
@@ -103,7 +106,8 @@
           "token_bps": 10000,
           "paid_bps": 3000,
           "payout": "600000000000000000000000",
-          "response_hash": "a0dbdb4cc2a32362c949a546450d8b2a90bd542fc7509baf0ed28e7df58f3b5e"
+          "response_hash": "a0dbdb4cc2a32362c949a546450d8b2a90bd542fc7509baf0ed28e7df58f3b5e",
+          "computed": true
         },
         "get_order": {
           "order_id": "A124-11",
@@ -133,7 +137,8 @@
             "token_bps": 0,
             "paid_bps": 0,
             "payout": "0",
-            "response_hash": "f31cf3e34879ef61f086447fe5265f9eaf6fd5966d35b7208a7052a75d0a340c"
+            "response_hash": "f31cf3e34879ef61f086447fe5265f9eaf6fd5966d35b7208a7052a75d0a340c",
+            "computed": true
           }
         }
       }
@@ -162,5 +167,6 @@
       "order_id": "A123-11",
       "error": "ERR_ALREADY_CLAIMED"
     }
-  ]
+  ],
+  "computed_views": true
 }

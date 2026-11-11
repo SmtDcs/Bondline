@@ -140,7 +140,9 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
 
     // Orange badge with the transcript date, contract link, orders from the steps.
     assert.equal(els['mode-badge'].className, 'badge replay');
-    assert.equal(els['mode-badge'].textContent, `REPLAY of a real testnet run recorded ${transcript.recorded_at.slice(0, 10)}`);
+    // client-2: the committed transcript marks its recomputed views, so the badge says they were recomputed.
+    assert.equal(transcript.computed_views, true);
+    assert.equal(els['mode-badge'].textContent, `REPLAY of a real testnet run recorded ${transcript.recorded_at.slice(0, 10)} · BINDING/Tamper badges and the pre-claim meter recomputed from the recorded bytes`);
     assert.equal(els['contract-link'].children[0].href, `https://testnet.nearblocks.io/address/${transcript.contract}`);
     assert.deepEqual(els['order-select'].children.map(o => o.value), chatSteps.map(s => s.order_id));
     assert.equal(els['order-select'].children[1].textContent, `${chatSteps[1].order_id} · badly configured bot`);

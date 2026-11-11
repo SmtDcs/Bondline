@@ -35,7 +35,16 @@ const bytes = Buffer.from(JSON.stringify(record, null, 2) + '\n', 'utf8');
 const sha = crypto.createHash('sha256').update(bytes).digest('hex');
 fs.mkdirSync(outDir, { recursive: true });
 const file = path.join(outDir, `${model.replaceAll('/', '_')}-${algo}-${fetchedAt.slice(0, 10)}.json`);
-fs.writeFileSync(file, bytes);
+// client-10: never replace a record. Its sha256 may already be registered on chain (add_signer), and then no file in the
+// repo would match attestation_sha256 any more. The `wx` flag fails when the file exists.
+try {
+  fs.writeFileSync(file, bytes, { flag: 'wx' });
+} catch (e) {
+  if (e?.code !== 'EEXIST') throw e;
+  console.error(`REFUSING to overwrite ${file}: an attestation record with that name exists (its sha256 may already be registered on chain).`);
+  console.error('Write the new record elsewhere (--out-dir <tmp>) and copy it into fixtures/attestation/ under a new name.');
+  process.exit(1);
+}
 const expires = Date.now() + days * 86_400_000;
 for (const v of verified) {
   const pk = v.signer.signingAddress.replace(/^0x/, '').toLowerCase();

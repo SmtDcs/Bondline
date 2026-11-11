@@ -47,7 +47,9 @@ export function tamperedCopy(bundle) {
 export function chatTimePreview(order, responseB64, receipt) {
   const bytes = Buffer.from(responseB64, 'base64');
   const response_hash = sha256Hex(bytes);
-  const err = (error, token_bps = 0) => ({ ok: false, error, token_bps, paid_bps: 0, payout: '0', response_hash });
+  // A v2 order carries `token` (null = NEAR) and the v2 ClaimPreview echoes it; v1 orders have no such field.
+  const tokenField = 'token' in order ? { token: order.token ?? null } : {};
+  const err = (error, token_bps = 0) => ({ ok: false, error, token_bps, paid_bps: 0, payout: '0', response_hash, ...tokenField });
   if (!receipt) return err('ERR_NO_RECEIPT_FOR_BYTES');
   if (receipt.order_id !== order.order_id) return err('ERR_RECEIPT_ORDER_MISMATCH');
   const content = extractContent(bytes);
@@ -57,7 +59,7 @@ export function chatTimePreview(order, responseB64, receipt) {
   if (token.orderId !== order.order_id) return err('ERR_TOKEN_ORDER_MISMATCH', token.bps);
   const paid_bps = Math.min(token.bps, order.max_bps);
   const payout = (BigInt(order.amount) * BigInt(paid_bps) / 10_000n).toString();
-  return { ok: true, error: null, token_bps: token.bps, paid_bps, payout, response_hash };
+  return { ok: true, error: null, token_bps: token.bps, paid_bps, payout, response_hash, ...tokenField };
 }
 
 /**
@@ -78,6 +80,38 @@ export function merchantBeforeClaims(finalMerchant, claims) {
   }
   // A v2 token bond view (get_bond) carries `token`; keep it so the page shows the right asset.
   return { ...(finalMerchant.token !== undefined ? { token: finalMerchant.token } : {}), bond: bond.toString(), reserved: reserved.toString(), paid_out: paidOut.toString() };
+}
+
+/** client-2: mark one view the contract did not return live (recomputed after the run) with `computed: true`.
+ *  A v2 preview also gets the `token` field the contract's ClaimPreview carries (null = NEAR). */
+export function markComputedView(view, order, { v2 = false } = {}) {
+  if (!view) return view;
+  const marked = { ...view, computed: true };
+  if (v2 && !('token' in marked) && 'payout' in marked) marked.token = order?.token ?? null;
+  return marked;
+}
+
+/**
+ * client-2: the recorder runs after the claims, so the chat-time `preview_claim`, each `tamper.preview_claim` and the
+ * first chat step's pre-claim `get_merchant` were never returned by the contract: they are recomputed (chatTimePreview,
+ * merchantBeforeClaims). This marks exactly those views `computed: true` and sets the top-level `computed_views: true`
+ * so the replay page and the README can say so. Used on transcripts recorded before the marker existed; the recorder
+ * itself marks the views it recomputes. Pure and idempotent; returns a new transcript.
+ */
+export function markComputedViews(transcript) {
+  const out = JSON.parse(JSON.stringify(transcript));
+  const v2 = out.contract_api === 2;
+  let first = true;
+  for (const step of out.steps ?? []) {
+    if (step.kind !== 'chat' || !step.views) continue;
+    const order = step.views.get_order;
+    step.views.preview_claim = markComputedView(step.views.preview_claim, order, { v2 });
+    if (step.views.tamper?.preview_claim) step.views.tamper.preview_claim = markComputedView(step.views.tamper.preview_claim, order, { v2 });
+    if (first && step.views.get_merchant) step.views.get_merchant = markComputedView(step.views.get_merchant, order);
+    first = false;
+  }
+  out.computed_views = true;
+  return out;
 }
 
 export function readJsonLines(file) {

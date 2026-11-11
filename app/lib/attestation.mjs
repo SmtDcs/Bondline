@@ -51,19 +51,31 @@ export function attestedRow(bundle, records) {
 }
 
 /**
- * On-chain signer rows (get_signer result) for a real bundle: provider_tee, model matches, not expired,
+ * On-chain signer rows (get_signer result) for a real bundle: provider_tee, model matches, signer validity,
  * and attestation_sha256 is the sha256 of a record that lists this signing_address.
+ *
+ * Validity (client-4): a receipt is judged by whether its signer was valid WHEN IT WAS REGISTERED
+ * (`receipt.registered_at_ms`, on chain), not by today's clock: receipts already on chain stay valid after the signer
+ * expires (only new register_receipt calls fail). Without a receipt the signer must be unexpired at `nowMs`
+ * (row name `signer not expired`). The signer's current expiry is also printed as an informational row.
  */
-export function signerRows(signer, bundle, records, nowMs = Date.now()) {
+export function signerRows(signer, bundle, records, nowMs = Date.now(), receipt = null) {
   if (!signer) return [{ check: 'signer registered in contract (get_signer)', ok: false, detail: 'null' }];
   const addr = String(bundle.signature?.signing_address ?? '').toLowerCase();
   const rec = records.find(r => r.sha256 === String(signer.attestation_sha256 ?? '').toLowerCase());
   const expires = Number(signer.expires_at_ms);
+  const registeredAt = receipt?.registered_at_ms != null ? Number(receipt.registered_at_ms) : NaN;
+  const atReceipt = Number.isFinite(registeredAt);
+  const validity = atReceipt
+    ? { check: 'signer valid when the receipt was registered', ok: Number.isFinite(expires) && expires > registeredAt, detail: `expires_at_ms ${signer.expires_at_ms} > receipt registered_at_ms ${receipt.registered_at_ms}` }
+    : { check: 'signer not expired', ok: Number.isFinite(expires) && expires > nowMs, detail: `expires_at_ms ${signer.expires_at_ms}` };
+  const now = Number.isFinite(expires) ? `${new Date(expires).toISOString()} (${expires > nowMs ? 'still valid now' : 'expired now: new register_receipt calls fail, receipts already on chain stay valid'})` : 'unknown';
   return [
     { check: 'signer registered in contract (get_signer)', ok: true, detail: `${signer.kind} ${signer.model_id ?? ''} att=${String(signer.attestation_sha256).slice(0, 12)}` },
     { check: 'signer kind is provider_tee', ok: signer.kind === 'provider_tee', detail: String(signer.kind) },
     { check: 'signer model_id == bundle.model', ok: signer.model_id === bundle.model, detail: `${signer.model_id} vs ${bundle.model}` },
-    { check: 'signer not expired', ok: Number.isFinite(expires) && expires > nowMs, detail: `expires_at_ms ${signer.expires_at_ms}` },
+    validity,
     { check: 'signer attestation_sha256 is a repo attestation record listing this key', ok: !!rec && rec.signers.has(addr), detail: rec ? rec.file : 'no fixtures/attestation file has that sha256' },
+    { check: 'signer current expiry (informational)', ok: true, detail: now },
   ];
 }

@@ -17,6 +17,9 @@
 // order status first), so the transcript's chat-time `preview_claim`, each `views.tamper` outcome
 // and the first chat step's pre-claim bond meter are COMPUTED by app/lib/transcript.mjs with the
 // contract's own rules from the committed bundle bytes + get_receipt + get_order + the claim log.
+// Each computed view is marked `computed: true` and the transcript gets `computed_views: true` (client-2): they are
+// NOT contract answers, and the replay page says so. To record real chat-time views instead, run this script while
+// the orders are still open (before the claims): live views are then kept unmarked.
 // No hand-made snapshot file is read: re-running this script against the same bundles/logs
 // reproduces the recording.
 import fs from 'node:fs';
@@ -26,7 +29,7 @@ import { sha256Hex } from '../lib/nearai.mjs';
 import { detectApi, orderArgs, receiptArgs, previewClaimArgs } from '../lib/contract-api.mjs';
 import { ftMetadata } from '../lib/token.mjs';
 import {
-  newestBundle, tamperedCopy, chatTimePreview, merchantBeforeClaims, readJsonLines, lastLine, lastUserMessage, outputPaths, merchantForRecording,
+  newestBundle, tamperedCopy, chatTimePreview, markComputedView, merchantBeforeClaims, readJsonLines, lastLine, lastUserMessage, outputPaths, merchantForRecording,
 } from '../lib/transcript.mjs';
 import { readEnvFile } from '../lib/live-tx.mjs';
 
@@ -96,7 +99,7 @@ async function recordViews(orderId, bundle) {
   // contract answered at chat time. If a future run is recorded while the order is still open, the
   // live view is the truthful one and is kept.
   const preview = previewLive?.error === 'ERR_ALREADY_CLAIMED'
-    ? chatTimePreview(order, bundle.response_b64, receipt)
+    ? markComputedView(chatTimePreview(order, bundle.response_b64, receipt), order, { v2: api === 2 })
     : previewLive;
   console.log(`  ${orderId}: receipt ${receipt ? `block ${receipt.block_height}` : 'null'}; preview_claim live ${JSON.stringify(previewLive)}; recorded ${JSON.stringify(preview)}`);
   return { get_receipt: receipt, preview_claim: preview, get_order: order, get_merchant: merchant };
@@ -110,7 +113,7 @@ async function tamperViews(orderId, bundle, order) {
   const receipt = await viewWithRetry(provider, contractId, 'get_receipt', receiptArgs(api, order.merchant, responseHash));
   const previewLive = await viewWithRetry(provider, contractId, 'preview_claim', previewClaimArgs(api, order.merchant, orderId, tampered.response_b64));
   const preview = previewLive?.error === 'ERR_ALREADY_CLAIMED'
-    ? chatTimePreview(order, tampered.response_b64, receipt)
+    ? markComputedView(chatTimePreview(order, tampered.response_b64, receipt), order, { v2: api === 2 })
     : previewLive;
   console.log(`  ${orderId} tampered: hash ${responseHash.slice(0, 12)}; preview_claim live ${JSON.stringify(previewLive)}; recorded ${JSON.stringify(preview)}`);
   return { response_b64: tampered.response_b64, response_hash: responseHash, get_receipt: receipt, preview_claim: preview };
@@ -135,10 +138,10 @@ if (editedA.error !== 'ERR_BAD_SIGNATURE') throw new Error(`expected ERR_BAD_SIG
 
 // The first chat step happened before both claims, so its bond meter is the final view rolled back
 // by the two recorded claims. The last chat step keeps the live post-run view (used after a claim).
-const preClaimMerchant = merchantBeforeClaims(viewsA.get_merchant, [
+const preClaimMerchant = markComputedView(merchantBeforeClaims(viewsA.get_merchant, [
   { payout: claimA.result.payout, liability: viewsA.get_order.liability },
   { payout: claimB.result.payout, liability: viewsB.get_order.liability },
-]);
+]), viewsA.get_order);
 
 // v2: token metadata for every token in a recorded order, so the replay page can format amounts.
 const tokens = [];
@@ -152,6 +155,9 @@ if (api === 2) {
 const transcript = {
   type: api === 2 ? 'bot-promises/replay/v2' : 'bot-promises/replay/v1',
   recorded_at: new Date().toISOString(),
+  // client-2: this script runs after the claims, so the pre-claim bond meter is always arithmetic; views the contract
+  // did not return live carry `computed: true` (see the header comment) and the replay page says so.
+  computed_views: true,
   contract: contractId,
   ...(api === 2 ? { contract_api: 2, tokens } : {}),
   steps: [
