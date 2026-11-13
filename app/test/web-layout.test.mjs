@@ -26,7 +26,7 @@ test('index.html has the two panes, the order picker and the module script', () 
   assert.equal((html.match(/<section\b/g) ?? []).length, 2);
   assert.match(html, /<link rel="stylesheet" href="style\.css">/);
   assert.match(html, /<script type="module" src="app\.js"><\/script>/);
-  assert.match(html, /<form id="chat-form">[\s\S]*<input id="chat-input"[^>]*>[\s\S]*<button>Send<\/button>[\s\S]*<\/form>/);
+  assert.match(html, /<form id="chat-form">[\s\S]*<input id="chat-input"[^>]*>[\s\S]*<button type="submit">Send<\/button>[\s\S]*<\/form>/);
   assert.match(html, /<button id="btn-register-edited" disabled>/);
   assert.match(html, /<textarea id="deny-box"[^>]*>We never promised that\.<\/textarea>/);
 });

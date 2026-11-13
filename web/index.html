@@ -1,17 +1,21 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Claimable bot promises</title>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claimable bot promises</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css"></head>
 <body>
 <header><h1>Claimable bot promises</h1><span id="mode-badge"></span> <span id="contract-link"></span></header>
 <main>
-  <section id="shopper"><h2>Shopper (your browser)</h2>
-    <label>Order <select id="order-select"></select></label>
-    <div id="chat-log"></div>
-    <form id="chat-form"><input id="chat-input" autocomplete="off" placeholder="Write to support..."><button>Send</button></form>
+  <section id="shopper" aria-labelledby="shopper-title"><h2 id="shopper-title">Shopper (your browser)</h2>
+    <label for="order-select">Order</label>
+    <select id="order-select" aria-label="Order"></select>
+    <div id="chat-log" role="log" aria-live="polite" aria-label="Conversation"></div>
+    <form id="chat-form"><input id="chat-input" aria-label="Message to the shop's support bot" autocomplete="off" placeholder="Write to support..."><button type="submit">Send</button></form>
   </section>
-  <section id="merchant"><h2>Merchant: Demo Mug Shop</h2>
-    <div id="bond-meter"></div>
-    <textarea id="deny-box" placeholder="Merchant reply...">We never promised that.</textarea>
+  <section id="merchant" aria-labelledby="merchant-title"><h2 id="merchant-title">Merchant: Demo Mug Shop</h2>
+    <div id="bond-meter" aria-live="polite"></div>
+    <textarea id="deny-box" aria-label="Merchant reply (for the demo only; this text is not used as the promise)" placeholder="Merchant reply...">We never promised that.</textarea>
     <p id="deny-note">Receipts cannot be deleted: the contract has no delete method.</p>
     <button id="btn-register-edited" disabled>Register an edited reply</button>
     <div id="merchant-log"></div>

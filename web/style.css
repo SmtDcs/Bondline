@@ -334,6 +334,13 @@ button.tamper {
 .toast.binding { background: #14532d; }
 
 .toast .toast-text { margin-right: 8px; }
+.toast .toast-detail {
+  display: block;
+  margin-top: 4px;
+  color: #e5e7eb;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
 .toast a { color: #bfdbfe; font-weight: 600; }
 
 @media (max-width: 760px) {

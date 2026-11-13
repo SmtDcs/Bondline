@@ -18,7 +18,7 @@ npm run demo:replay          # then open http://127.0.0.1:8787/?offline=1 and cl
 All steps and expected output: [Judge path](#judge-path-do-x-see-y).
 
 ## Numbers (all re-checkable in this repo)
-- **384 tests**: 241 JS (`npm run test:js`), 16 Rust on v1 (`npm run test:contract`), 127 Rust on v2 (`npm run test:contract:v2`); all passed on 2026-11-11.
+- **391 tests**: 248 JS (`npm run test:js`), 16 Rust on v1 (`npm run test:contract`), 127 Rust on v2 (`npm run test:contract:v2`); all passed on 2026-11-13.
 - **91 recorded testnet transactions** (32 deliberate failures) of the v2 live run, replayable with `npm run verify:live-run`.
 - **7 real NEAR AI receipts** verified offline, plus 3 deliberately edited ones that are correctly rejected.
 - **About 7.7 Tgas** for a whole tUSDC claim, measured (`docs/DETAILS.md`).
@@ -56,10 +56,10 @@ Same steps as above, in full. Steps 1-4 and 6 need no Rust and no keys.
    - **SIMULATED bundles:** only with `--offline` does a SIMULATED bundle end in `SIMULATED (fake key, proves nothing about a TEE)`, for example `npm run verify -- fixtures/simulated/honest.json --offline`. Online it ends in `NOT VERIFIED` (the fake key is not registered on chain; without `--merchant` it stops at the `merchant given` row). It never prints `VERIFIED`.
    - Behind an HTTP(S) proxy Node's `fetch` ignores the proxy variables and `verify` prints `FAIL  testnet RPC unreachable`: set `NODE_USE_ENV_PROXY=1`, or use `--offline`.
    - Offline: `npm run verify -- fixtures/live/a123.json --offline` ends in `VERIFIED` (off-chain checks only; it also requires the signing key to be in an attestation record).
-4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the replayed badges and the Claim button show up and touches nothing but localhost. The receipts, orders, claim results and transaction hashes in the replay are real recorded chain data; the chat-time `BINDING` badges, the Tamper results and the first pre-claim bond meter are **recomputed** from the recorded bytes (the recorder ran after both claims), each marked `computed: true`. Details: `docs/DETAILS.md`. This replay click-through has not been done by a human yet (`docs/SUBMISSION.md`).
-5. (Rust 1.95 installed) `npm run test:contract` - `test result: ok. 16 passed; 0 failed`.
-6. `npm run test:js` - `# fail 0` (241 tests, all passed on 2026-11-11). If the npm script exits 255 without output in a restricted sandbox, run `node --test app/test/*.test.mjs` (unquoted glob).
-7. `npm run test:contract:v2` - `test result: ok. 127 passed` (2026-11-11).
+4. `npm run demo:replay`, then open **http://127.0.0.1:8787/?offline=1** - click through the recorded demo (beats below). `?offline=1` is what makes the replayed badges and the Claim button show up and touches nothing but localhost. The receipts, orders, claim results and transaction hashes in the replay are real recorded chain data; the chat-time `BINDING` badges, the Tamper results and the first pre-claim bond meter are **recomputed** from the recorded bytes (the recorder ran after both claims), each marked `computed: true`. Details: `docs/DETAILS.md`. An AI (Command Code) clicked through this replay in Chrome on 2026-11-13 for both `transcript.json` and `transcript-v2.json`; no human has yet (`docs/SUBMISSION.md`).
+5. (Rust 1.95 installed) `npm run test:contract` - `test result: ok. 16 passed; 0 failed` (re-run 2026-11-13).
+6. `npm run test:js` - `# fail 0` (248 tests, all passed on 2026-11-13). If the npm script exits 255 without output in a restricted sandbox, run `node --test app/test/*.test.mjs` (unquoted glob).
+7. `npm run test:contract:v2` - `test result: ok. 127 passed` (re-run 2026-11-13).
 8. `npm run verify:live-run` - re-reads all 91 recorded v2 transactions (the L1-L14 run on the previous build and the 2026-11-11 re-check on the redeployed one) from the testnet RPC and compares success/failure, error, returned value, logs and gas burnt (`LIVE RUN REPLAYED`); `-- --offline` only checks the file's structure. Public RPC nodes drop old transaction outcomes after a few epochs; the tool then falls back to `https://archival-rpc.testnet.fastnear.com` automatically (details in `docs/DETAILS.md`). Behind a proxy set `NODE_USE_ENV_PROXY=1`.
 
 ## Verify each claim

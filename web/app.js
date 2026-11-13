@@ -11,6 +11,7 @@ const OFFLINE = new URLSearchParams(location.search).has('offline');
 let REPLAY_TRANSCRIPT = null; // T19: recorded run, loaded only when CFG.mode === 'replay'
 const REPLAY_CLAIMED = new Set(); // T19: orders claimed so far in the offline replay (drives the bond meter)
 let TAMPERED_ROW = null; // the bubble the shopper last clicked Tamper on: the merchant's edit targets it
+let CHAT_IN_FLIGHT = false; // one /api/chat at a time (a double Enter must not buy two live replies)
 
 const BOND_REFRESH_MS = 10_000;
 /** client-9: views retried right after a registered receipt (a lagging RPC node answers null). Tests shrink it. */
@@ -134,7 +135,9 @@ export function badgeText({ receipt, preview, tokenId: configTokenId, expiresAtM
 /** Reads GET /api/config into CFG. The url is overridable so node tests (and the
  *  acceptance check) can drive the same module without a browser. */
 export async function loadConfig(url = '/api/config') {
-  CFG = await (await fetch(url)).json();
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`config HTTP ${res.status}${res.status === 404 ? ' (is the server running?)' : ''}`);
+  CFG = await res.json();
   return CFG;
 }
 
@@ -359,7 +362,7 @@ function botMessage() {
   const row = element('div', 'msg bot');
   const bubble = element('div', 'bubble');
   const meta = element('div', 'meta');
-  const status = element('span', 'badge pending', 'registering receipt on NEAR…');
+  const status = element('span', 'badge pending', 'waiting for the bot…');
   const links = element('span', 'links');
   meta.append(status, links);
   row.append(bubble, meta);
@@ -373,13 +376,21 @@ function renderReply(bubble, reply) {
   if (token) bubble.append(element('span', 'token', token));
 }
 
-/** Bottom-right toast; `href` adds the claim tx link. Auto-dismiss after 15 s. */
-function showToast(text, href, cls = 'toast') {
+/** Bottom-right toast; `href` adds a tx link, `detail` the server's explanation, `label` the link text.
+ *  Toasts stack instead of covering each other. Auto-dismiss after 15 s. */
+function showToast(text, href, cls = 'toast', { label = 'claim tx', detail = null } = {}) {
   const host = document.body ?? $('footer');
   if (!host) return null;
   const el = element('div', cls);
+  el.setAttribute?.('role', 'status');
   el.append(element('span', 'toast-text', text));
-  if (href) el.append(link('claim tx', href));
+  if (detail) el.append(element('span', 'toast-detail', detail));
+  if (href) el.append(link(label, href));
+  // A toast stack: each new toast sits above the ones already on screen (no container, so the
+  // page's DOM order stays flat and the auto-dismiss timer keeps working).
+  const existing = typeof host.querySelectorAll === 'function' ? [...host.querySelectorAll('.toast')] : [];
+  const offset = existing.reduce((sum, t) => sum + (t.offsetHeight || 0) + 8, 0);
+  if (el.style && offset > 0) el.style.bottom = `${18 + offset}px`;
   host.append(el);
   const timer = setTimeout(() => el.remove?.(), 15_000);
   timer?.unref?.();
@@ -456,7 +467,7 @@ async function claim(row, btn) {
       failed = true;
       const text = data.error === 'ERR_PAYOUT_FAILED' ? payoutFailedText(row.tokenId) : (data.error ?? `HTTP ${res.status}`);
       setBadge(row.statusBadge, { cls: 'error', text });
-      showToast(text, null, 'toast error');
+      showToast(text, data.explorer ?? null, 'toast error', { label: 'failed tx', detail: data.detail ?? null });
       return;
     }
     // client-1: the claim result names the token that actually moved (null = NEAR); the page's earlier guess is a fallback.
@@ -568,7 +579,8 @@ async function checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries 
       addClaim(bot.row);
       // NEP-145: say it next to BINDING when the buyer has no storage on the token. Never block the claim:
       // the contract cannot know, and a failed payout is safe (the order stays open for a retry).
-      if (tokenId && isV2()) {
+      // ?offline=1 must touch nothing but localhost, so it never asks the token contract (client-11).
+      if (tokenId && isV2() && !(OFFLINE && CFG.mode === 'replay')) {
         const balance = await rpcView('storage_balance_of', { account_id: CFG.buyerId }, tokenId).catch(() => undefined);
         if (balance === null) {
           const notice = buyerRegistrationNotice(tokenMetaFor(tokenId), CFG.buyerId);
@@ -590,9 +602,14 @@ async function checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries 
 
 async function onSubmit(event) {
   event.preventDefault();
+  // One paid chat at a time: a double Enter must not open two live /api/chat calls.
+  if (CHAT_IN_FLIGHT) return;
   const input = $('chat-input');
   const message = input.value.trim();
   if (!message) return;
+  const sendButton = $('chat-form')?.querySelector?.('button') ?? null;
+  CHAT_IN_FLIGHT = true;
+  if (sendButton) sendButton.disabled = true;
   const orderId = $('order-select').value;
   const orderCfg = configOrder(orderId);
   let tokenId = orderCfg?.token ?? null; // a startup snapshot: replaced by the chain's answer below
@@ -636,17 +653,26 @@ async function onSubmit(event) {
   } catch (err) {
     setBadge(bot.status, { cls: 'error', text: err.message });
     updateRegisterEdited();
+  } finally {
+    CHAT_IN_FLIGHT = false;
+    if (sendButton) sendButton.disabled = false;
   }
   await refreshBondMeter().catch(() => {});
 }
 
 async function init() {
+  // Wire a no-op preventer before any await: if loadConfig throws below, Enter must not do a native
+  // GET to "/" (which would also drop ?offline=1).
+  $('chat-form')?.addEventListener('submit', (e) => e.preventDefault());
   const cfg = await loadConfig();
   if (cfg.mode === 'replay') {
     await loadReplayTranscript().catch(() => {}); // badge/pre-fill fall back gracefully without it
     const badge = $('mode-badge');
     badge.className = 'badge replay';
     badge.textContent = replayBadgeText(REPLAY_TRANSCRIPT);
+    // Without ?offline=1 the page checks BINDING against testnet, where the recorded orders are already
+    // claimed: say why the badges are red instead of leaving a judge to guess.
+    if (!OFFLINE) $('mode-badge').after?.(element('span', 'badge warning', 'add ?offline=1 to see the recorded claimable badges (these orders are already claimed on testnet)'));
   } else {
     $('mode-badge').textContent = cfg.mode;
   }
