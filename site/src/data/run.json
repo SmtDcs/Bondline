@@ -74,15 +74,16 @@
   },
   "numbers": {
     "tests": {
-      "total": 391,
-      "js": 248,
+      "total": 573,
+      "js": 275,
       "v1": 16,
       "v2": 127,
+      "v3": 155,
       "date": "2026-11-13"
     },
     "txs": 91,
     "failures": 32,
-    "receipts": 7,
+    "receipts": 11,
     "tampered": 3,
     "tgas": 7.7
   },

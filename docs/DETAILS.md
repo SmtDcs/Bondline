@@ -102,6 +102,12 @@ tUSDC claim and its failure cases). The other steps were not repeated on that bu
 7.7 Tgas for a whole claim. The budgets `GAS_FT_TRANSFER = 20` and `GAS_CALLBACK = 15` Tgas were kept (unused gas is refunded)
 so a heavier real token has room.
 
+## Contract v3
+
+`claimable-promises.testnet` lets the customer register the signed reply (`register_receipt_as_buyer`), with every request
+authorized by the shop's server. Design, contract surface, accounts, deploy and live-run transactions, residual trust and hashes:
+[`V3.md`](V3.md).
+
 ## Contract v1 limitations, fixed in v2
 
 | Limitation (v1) | Impact | v2 |
@@ -168,3 +174,5 @@ whose token metadata or market registration check fails. A claim to an unregiste
 | `fixtures/attestation/` | the first attestation record (sha256 `dce1c116…2365`) and the renewal (`520bedd1…6a65`, the one on chain now) |
 | `fixtures/replay/` | replay transcripts: v1, v2 tUSDC, v2 NEAR |
 | `fixtures/runs/v2-live-run.json` | every transaction of the v2 live run and the re-check, with arguments, results, gas and logs |
+| `fixtures/live/v3-*.json` | the v3 live run's bundles: the genuine replies (registered by the customer) and the refused self-made, forged-tag and wrong-buyer requests |
+| `fixtures/runs/v3-live-run.json` | every transaction and check of the v3 live run |

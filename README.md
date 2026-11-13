@@ -4,7 +4,7 @@
 
 ![A bot promise, capped by the contract, claimed in tUSDC on testnet](docs/screenshots/live-v2-claimed.png)
 
-> Status: a NEAR **testnet** prototype. A promise is claimable only if the shop registers the signed reply, and (on v2) only until the order's expiry, which the shop sets. All limits are listed under [Limits and trust](#limits-and-trust).
+> Status: a NEAR **testnet** prototype. On v1/v2 a promise is claimable only if the shop registers the signed reply; on [v3](#contract-v3-the-customer-registers-it) the customer can register it. On v2 and v3 a promise is claimable only until the order's expiry, which the shop sets. All limits are listed under [Limits and trust](#limits-and-trust).
 
 Project page: **https://smtdcs.github.io/claimable-bot-promises/**
 
@@ -14,14 +14,15 @@ Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys.
 
 ```
 npm ci
-npm run verify:fixtures      # last line: ALL VERIFIED (7 real bundles + 3 tampered (correctly rejected) + 2 SIMULATED ...)
+npm run verify:fixtures      # last line: ALL VERIFIED (11 real bundles + 3 tampered (correctly rejected) + 5 refused ... + 2 SIMULATED ...)
 npm run demo:replay:v2       # then open http://127.0.0.1:8787/?offline=1 and click through the recorded run
 ```
 
 ## Numbers (all re-checkable in this repo)
-- **391 tests**: 248 JS (`npm run test:js`), 16 Rust on v1 (`npm run test:contract`), 127 Rust on v2 (`npm run test:contract:v2`); all passed on 2026-11-13.
+- **573 tests**: 275 JS (`npm run test:js`), 16 Rust on v1 (`npm run test:contract`), 127 Rust on v2 (`npm run test:contract:v2`), 155 Rust on v3 (`npm run test:contract:v3`); all passed on 2026-11-13.
 - **91 recorded testnet transactions** (32 deliberate failures) of the v2 live run, replayable with `npm run verify:live-run`.
-- **7 real NEAR AI receipts** verified offline, plus 3 deliberately edited ones that are correctly rejected.
+- **17 recorded testnet transactions** (12 deliberate refusals) and 42 checks of the v3 live run, replayable with `npm run verify:live-run:v3`.
+- **11 real NEAR AI receipts** verified offline, plus 3 deliberately edited ones that are correctly rejected and 5 self-made or wrong-buyer v3 requests that are refused.
 - **About 7.7 Tgas** for a whole tUSDC claim, measured on testnet.
 
 ## The problem
@@ -43,17 +44,18 @@ Steps 1-4 need no Rust and no keys.
 
 1. `npm ci` - installs the three direct dependencies. On Node 22 it prints `EBADENGINE` warnings for `@nearai/inference-sdk`; only `npm run attest` and `npm run signature:live` use that SDK.
 2. `npm run verify:fixtures` - re-checks every receipt bundle offline (hashes, signed text, ed25519 signature, key listed in the attestation record).
-   - Last line: `ALL VERIFIED (7 real bundles + 3 tampered (correctly rejected) + 2 SIMULATED (fake key, not TEE evidence))`.
-   - The 3 tampered bundles are edited copies and must each print `tamper detected`. The 2 SIMULATED bundles use a public fake key and print `PASS (SIMULATED key)`.
+   - Last line: `ALL VERIFIED (11 real bundles + 3 tampered (correctly rejected) + 5 refused (self-made or wrong-buyer requests: no valid shop authorization) + 2 SIMULATED (fake key, not TEE evidence))`.
+   - The 3 tampered bundles are edited copies and must each print `tamper detected`. The 5 refused ones are the v3 live run's self-made and wrong-buyer requests (no valid shop authorization). The 2 SIMULATED bundles use a public fake key and print `PASS (SIMULATED key)`.
 3. `npm run verify -- fixtures/live/a123.json` - the same checks plus testnet: signer registered and valid when the receipt was registered, attestation hash on chain, receipt on chain, `preview_claim`.
    - Last line: `VERIFIED`. The order is already claimed, so `preview_claim` answers `ERR_ALREADY_CLAIMED`, which passes.
    - A v2 bundle needs the merchant: `npm run verify -- fixtures/live/a123-v2.json --merchant cbp-shop-sm1110.testnet`.
    - An edited bundle fails: `npm run verify -- fixtures/live/a123-tampered.json --offline` prints `FAIL sha256(response bytes) == bundle.response_hash` and `NOT VERIFIED`.
    - Behind an HTTP(S) proxy set `NODE_USE_ENV_PROXY=1`, or add `--offline`.
 4. `npm run demo:replay:v2` (or `npm run demo:replay` for the v1 NEAR run), then open **http://127.0.0.1:8787/?offline=1** and click through the beats below. Receipts, orders, claim results and transaction hashes are real recorded chain data; the chat-time `BINDING` badges, the Tamper results and the first bond meter are recomputed from the recorded bytes and marked as such (`docs/DETAILS.md`).
-5. `npm run test:js` - `# fail 0` (248 tests).
-6. With Rust 1.95: `npm run test:contract` (16 passed), `npm run test:contract:v2` (127 passed), `npm run test:token` (6 passed).
+5. `npm run test:js` - `# fail 0` (275 tests).
+6. With Rust 1.95: `npm run test:contract` (16 passed), `npm run test:contract:v2` (127 passed), `npm run test:contract:v3` (155 passed), `npm run test:token` (6 passed).
 7. `npm run verify:live-run` - re-reads all 91 recorded v2 transactions from the testnet RPC and compares status, error, return value, logs and gas: `LIVE RUN REPLAYED`. It falls back to an archival RPC when a public node no longer serves old transactions.
+8. `npm run verify:live-run:v3` - the same for the 17 transactions of the v3 live run (`docs/V3.md`): `LIVE RUN REPLAYED`.
 
 ## Demo (2 minutes)
 
@@ -61,6 +63,16 @@ Steps 1-4 need no Rust and no keys.
 2. **Denial.** The shop says "We never promised that." The contract has no method that deletes a receipt, and the cap was reserved when the order was created.
 3. **Cap.** A misconfigured shop prompt (order A124) lets the bot promise 100% (`bps=10000`). The contract pays `min(10000, 3000)` = 30%: 6 tUSDC of a 20 tUSDC order. With the honest prompt the same injection message got 0/3 (`docs/PROMPT-TESTS.md`).
 4. **Refusals.** The shopper edits `2000` to `3000` and claims: `ERR_NO_RECEIPT_FOR_BYTES`. The shop registers an edited reply: `ERR_BAD_SIGNATURE`. A second claim: `ERR_ALREADY_CLAIMED`.
+
+## Contract v3: the customer registers it
+
+On v1 and v2 a shop that regrets a promise can simply not register it. v3 (`contract-v3/`, `claimable-promises.testnet`) lets the **customer** register the TEE-signed reply themselves (`register_receipt_as_buyer`), and still pays only for genuine replies of this shop's bot:
+
+- The shop's server signs every request it sends to NEAR AI with a shop-auth key whose public key each order carries on chain. A promise the customer got by calling NEAR AI directly (`ERR_SHOP_AUTH_MISSING`), with a tag they signed themselves (`ERR_SHOP_AUTH_SIGNATURE`), or with the shop's tag for another order or buyer (`ERR_SHOP_AUTH_ORDER` / `_BUYER`) is refused.
+- The bot server hands the full signed bundle to the customer with every reply; any NEAR AI key can re-fetch the signature by chat id to check it. `npm run customer:register -- <bundle.json> --merchant <shop> --contract <v3>` registers it without the shop's server.
+- Deployed **keyless** (deploy + init `E3KPBrfukGG9aaArZSWBuJP2TwyQ5wDN865hWN5AfB77`, key deleted `FNSQ8B9tLswCisGMvjfCuY9ktJ1XnJf73DB6DUjK39cn`) with a separate owner account; there is no upgrade method.
+
+Live run (shop's relayer registered nothing): the customer registered the bot's 20% promise (`HkHHHUWNd31mPVGPPQzvV113f3bxLKXBDbwL1MwAb5FX`) and claimed 4 tUSDC (`7A52kwCHehf82f8NAxcQfVbAi78j8nYwneNGF9E9JMx8`); the naive bot's 100% promise paid 6 tUSDC, capped at 30% (`81sbkoDSG25Ev65m5mJJQjRV5USvCsGSHjCSv2y2q6zA`); self-made requests, a replay, another order's authorization, a stranger and an expired order were all refused on chain. 17 transactions, 42 checks, `npm run verify:live-run:v3`. The shop's server is still the only source of the exact reply bytes: a shop that changes its server to withhold them cannot be forced, but the customer sees it on that reply. Design, every hash and the residual trust: [`docs/V3.md`](docs/V3.md).
 
 ## Verify each claim on chain
 
@@ -123,7 +135,8 @@ The relayer never re-serializes the NEAR AI response: it hashes the exact bytes 
 
 | Path | What |
 | --- | --- |
-| `contract-v2/` | the current market contract (Rust, near-sdk 5.30.1): NEAR and NEP-141 bonds, storage accounting, expiry, payout callbacks |
+| `contract-v3/` | the customer-registered market contract: v2 plus shop-authorized requests, `register_receipt_as_buyer`, two-step owner, reproducible build |
+| `contract-v2/` | the market contract the demo page runs against (Rust, near-sdk 5.30.1): NEAR and NEP-141 bonds, storage accounting, expiry, payout callbacks |
 | `contract/` | the first contract (NEAR bonds only), still live as `cbp-sm1110.testnet` |
 | `token/` | the testnet mock stablecoin tUSDC (NEP-141/145/148) |
 | `app/` | the relayer server, the client libraries, `verify` and the operator scripts |
@@ -143,7 +156,7 @@ Live mode needs your own testnet accounts and a NEAR AI Cloud API key. `docs/DEP
 | Component | Trusted for | Not trusted for |
 | --- | --- | --- |
 | NEAR AI model TEE | producing and signing the reply bytes | nothing else |
-| Contract owner (each contract is its own owner) | registering only attested signer keys (checked off chain, record hash on chain) | money, in a production deployment. **On this testnet demo each contract account and the mock token holds a full-access key**, see below |
+| Contract owner (v1/v2: each contract is its own owner; v3: a separate account) | registering only attested signer keys (checked off chain, record hash on chain) | money, in a production deployment. **On this testnet demo each contract account and the mock token holds a full-access key**, see below |
 | Merchant / relayer | choosing to register a reply (an unregistered reply is NOT A PROMISE) and, on v2, each order's expiry | editing a reply (signature check), exceeding `max_bps`, withdrawing reserved bond |
 | Shopper | nothing | registering receipts, claiming twice, claiming edited bytes |
 | Browser BINDING check | the page's own RPC views against the RPC URL and contract id it was given | the merchant's `reply` string (ignored). In the demo the merchant's server serves the page and its config, so a dishonest merchant could point it elsewhere. The check is independent only when the shopper runs `npm run verify` (it pins the known contracts) or an independently hosted page |
@@ -156,17 +169,17 @@ Live mode needs your own testnet accounts and a NEAR AI Cloud API key. `docs/DEP
 curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"v2.cbp-sm1110.testnet"}}'
 ```
 
-The deployed code has no method that moves a bond, rescues funds as the owner or deletes a receipt, but whoever holds the account key could redeploy the code. On this demo you trust the deployer not to; the contract is **not** trustless. A production deployment would lock the account or hand the key to a DAO / multisig with a timelock. The keys stay for now because the market's key is needed to renew or revoke the TEE signer and the contract has no owner-transfer method yet.
+The deployed code has no method that moves a bond, rescues funds as the owner or deletes a receipt, but whoever holds the account key could redeploy the code. On this demo you trust the deployer not to; the contract is **not** trustless. A production deployment would lock the account or hand the key to a DAO / multisig with a timelock. The keys stay for now because the market's key is needed to renew or revoke the TEE signer and the contract has no owner-transfer method yet. v3 fixes that: `claimable-promises.testnet` has a separate owner and **no** access key (same `view_access_key_list` call returns an empty list).
 
 ### Known limits
 
 - **Expiry (v2):** a promise is claimable only until the order's `expires_at_ms`, which the merchant sets. This deployment's minimum TTL is 2 minutes (a demo value; the demo orders use 30 minutes); a real deployment should keep the contract's 1 hour default floor or higher. v1 has no expiry.
-- **The merchant must register the reply.** The signature stops the merchant from editing a reply, not from ignoring it. Receipts cannot be removed, so a receipt filed under the wrong order blocks that reply for good (`ERR_RECEIPT_ORDER_MISMATCH` / `ERR_RECEIPT_EXISTS`).
+- **The merchant must register the reply (v1/v2).** The signature stops the merchant from editing a reply, not from ignoring it; v3 lets the customer register it instead. Receipts cannot be removed, so a receipt filed under the wrong order blocks that reply for good (`ERR_RECEIPT_ORDER_MISMATCH` / `ERR_RECEIPT_EXISTS`).
 - **Attestation is checked off chain.** The contract cannot verify a TDX quote; it trusts the owner's signer list, and only the record's sha256 is on chain. `npm run attest` verifies the quote, the nonce binding and the GPU evidence through the NEAR AI SDK; `verify` does not re-run that. Instances of the same NEAR AI model share one signing key.
 - **Truncated replies** (`finish_reason: length`) are not detected: a token cut inside the `bps` digits would register the smaller value. The merchant is never overcharged.
 - **Not private:** a claim puts the reply bytes on chain.
 - **Mock token:** tUSDC is a testnet mock with no value and no backing; its source is `token/`. On mainnet the allow-list would hold the issuer's native USDC (a new deployment, since the list is fixed at init).
-- **Reproducibility:** the committed wasm files equal the on-chain code hashes, but the builds are `non-reproducible-wasm`, so a rebuild will not necessarily give the same hash (`docs/wasm-sha256.txt`).
+- **Reproducibility:** the committed wasm files equal the on-chain code hashes, but the v1/v2 builds are `non-reproducible-wasm`, so a rebuild will not necessarily give the same hash. v3 is a reproducible build of the same source as `contract-v3/`, from a commit of the earlier private development repository; its embedded source link points there, so a rebuild from this repository differs only in that link and therefore in hash (`docs/V3.md`, `docs/wasm-sha256.txt`).
 - **TEE signer expiry:** the signer expires on 2026-11-30 10:45 UTC. Receipts already on chain stay valid; new `register_receipt` calls would then fail with `ERR_SIGNER_EXPIRED` until it is renewed (`docs/DEPLOY.md`).
 - No wallet login for the shopper (the demo keeps a claim-only function-call key on the laptop, labelled DEMO ONLY); one token kind (`refund`), no disputes. Not run live: the second-token refund and `ERR_LIABILITY_ZERO` (unit tests only).
 
@@ -178,19 +191,21 @@ Mainnet, NEAR Intents, on-chain TDX quote verification, a private chat, or a tru
 
 | | |
 | --- | --- |
-| Market (v2, current) | `v2.cbp-sm1110.testnet` (allow-list `[sm1110-tusdc.testnet]`) |
+| Market (v2, the demo page) | `v2.cbp-sm1110.testnet` (allow-list `[sm1110-tusdc.testnet]`) |
+| Market (v3, customer-registered, keyless) | `claimable-promises.testnet` (owner `claimable-owner.testnet`, token `claimable-tusdc.testnet`, shop `claimable-shop.testnet`, buyer `claimable-buyer.testnet`) |
 | v1 (NEAR only, still live) | `cbp-sm1110.testnet` |
 | Mock token | `sm1110-tusdc.testnet` (tUSDC, 6 decimals) |
 | Merchant / shopper | `cbp-shop-sm1110.testnet` / `cbp-alice-sm1110.testnet` |
 | Bot model | NEAR AI Cloud `z-ai/glm-5.3-flash` |
 | TEE signer (ed25519) | `5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff` |
 
-Recorded runs: `fixtures/replay/transcript.json` (v1, NEAR), `fixtures/replay/transcript-v2.json` (v2, tUSDC), `fixtures/replay/transcript-v2-near.json` (v2, NEAR) and every transaction of the v2 live run in `fixtures/runs/v2-live-run.json`. Details, contract surfaces and gas: `docs/DETAILS.md`.
+Recorded runs: `fixtures/replay/transcript.json` (v1, NEAR), `fixtures/replay/transcript-v2.json` (v2, tUSDC), `fixtures/replay/transcript-v2-near.json` (v2, NEAR) and every transaction of the v2 and v3 live runs in `fixtures/runs/v2-live-run.json` and `fixtures/runs/v3-live-run.json`. Details, contract surfaces and gas: `docs/DETAILS.md`.
 
 ## Docs
 
 - `docs/INTERFACES.md` - the v1 interface: methods, errors, events, bundle and transcript formats, HTTP API.
 - `docs/STABLECOIN.md` - the v2 design: NEP-141 bonds, storage accounting, callbacks, expiry, test plan.
+- `docs/V3.md` - v3: the customer registers the promise; design, deployment, live run, residual trust.
 - `docs/DETAILS.md` - verify and replay details, deployment, recorded runs, contract surfaces.
 - `docs/DEPLOY.md` - deploy your own copy on testnet.
 - `docs/PROMPT-TESTS.md` - the honest and the misconfigured bot prompt.
@@ -199,13 +214,13 @@ Recorded runs: `fixtures/replay/transcript.json` (v1, NEAR), `fixtures/replay/tr
 ## Track fit
 
 - **AI Security & Defense** (`security`): the bot can only promise a fixed token format, the payout is capped by the shop's on-chain `max_bps`, function-call keys limit the relayer to `register_receipt` and the shopper to `claim`, and the signer key is registered with a hash of its TEE attestation.
-- **Real-World Money** (`realworld`): merchant refund promises backed by a bond in NEAR or an NEP-141 stablecoin.
+- **Real-World Money** (`realworld`): merchant refund promises backed by a bond in NEAR or an NEP-141 stablecoin, which on v3 the customer can collect even when the shop does not register the promise.
 
 ## Built at NEAR HACKATHON
 
 All code was written during NEAR HACKATHON (2026-11). The signature-check pattern follows [tee-receipts](https://github.com/tmdry4530/tee-receipts) (MIT); one real NEAR AI ECDSA receipt from its fixtures is used as a test vector in `contract/src/ecdsa.rs`. No code was copied.
 
-AI use: the code, tests and docs were written with AI coding assistants under human direction; every change was run under `node --test`, `cargo test` and against testnet. The demo bot is NEAR AI Cloud `z-ai/glm-5.3-flash`.
+AI use: the code, tests and docs were written with AI coding assistants under human direction; every change was run under `node --test`, `cargo test` and against testnet. Contract v3 (`contract-v3/`), its app path (`app/lib/shop-auth.mjs`, the customer and deploy scripts, the `live-v3.mjs` recorder), its tests and `docs/V3.md` were written by Claude (Anthropic's Claude Opus and Sonnet models) under human direction; Claude also ran the v3 deployment and its live run. The demo bot is NEAR AI Cloud `z-ai/glm-5.3-flash`.
 
 ## Libraries
 

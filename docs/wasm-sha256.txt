@@ -2,6 +2,7 @@
 
 c4d88ead840e3300356aba35072a8cd1ef897edaa3ce9d2ac2590326bd7d8941  contract/res/bot_promises.wasm
 8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8  contract-v2/res/bot_promises_v2.wasm
+c2fbfec77bc89308f412a9e0a845a7714845db39a34b473ce045b7f1dcdf6a23  contract-v3/res/bot_promises_v3.wasm
 
 | item | v1 | v2 |
 | --- | --- | --- |
@@ -30,6 +31,25 @@ Check the on-chain hash yourself (read-only, no keys):
       -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"v2.cbp-sm1110.testnet"}}'
 
 and compare `code_hash` (base58) with the sha256 above.
+
+## Contract v3 (reproducible build)
+
+| item | value |
+| --- | --- |
+| file | `contract-v3/res/bot_promises_v3.wasm`, 323076 bytes (and `.sha256` next to it) |
+| account | `claimable-promises.testnet` (keyless) |
+| on-chain `code_hash` (base58 of the sha256) | `E88xdqTcEsmvu34SjkcchsEhDFMYmeAk4QuWS236oN42` |
+| deploy | deploy + `new` tx `E3KPBrfukGG9aaArZSWBuJP2TwyQ5wDN865hWN5AfB77`, key deleted tx `FNSQ8B9tLswCisGMvjfCuY9ktJ1XnJf73DB6DUjK39cn` |
+| command | `cd contract-v3 && cargo near build reproducible-wasm` (cargo-near 0.23.0; `npm run build:contract:v3`) |
+| image | `sourcescan/cargo-near:0.23.0-rust-1.99.1@sha256:8013f039e8005627f10ae66b5519d1a6eeeed7d7aef4b5067d5e9a86c4302fcc`, inside: `cargo near build non-reproducible-wasm --locked` |
+| dependency lock | `contract-v3/Cargo.lock`, committed |
+
+Unlike v1 and v2 this is a reproducible build, but of commit `91c409cf953b5956a86ee3fcbccfb24520805bc0` of the project's earlier,
+private development repository, and the source link embedded in the wasm points there. `contract-v3/src`, `tests` and `Cargo.lock`
+in this repository are identical to that commit; only the `repository` line of `Cargo.toml` differs. So: **the deployed code is the
+committed wasm** (sha256 and `code_hash` agree), and it was built from this source; a rebuild from this repository embeds a different
+source link and gives a different hash. `app/scripts/deploy-v3.mjs` refuses to deploy a file whose sha256 differs from the `.sha256` file.
+An earlier deployment of the same source, `claimable-v3.testnet`, is retired.
 
 ## Mock token
 

@@ -142,11 +142,12 @@ const testsTotal = one(/\*\*(\d+) tests\*\*/, 'total tests', numbersLine);
 const testsJs = one(/(\d+) JS\b/, 'JS tests', numbersLine);
 const testsV1 = one(/(\d+) Rust on v1\b/, 'v1 Rust tests', numbersLine);
 const testsV2 = one(/(\d+) Rust on v2\b/, 'v2 Rust tests', numbersLine);
+const testsV3 = one(/(\d+) Rust on v3\b/, 'v3 Rust tests', numbersLine);
 const dates = [...numbersLine.matchAll(/all passed on (\d{4}-\d{2}-\d{2})/g)];
 must(dates.length === 1, 'README numbers line: expected exactly one pass date');
 const testsDate = dates[0][1];
-must(testsJs + testsV1 + testsV2 === testsTotal,
-  `README numbers add up: ${testsJs} JS + ${testsV1} v1 + ${testsV2} v2 === ${testsTotal}`);
+must(testsJs + testsV1 + testsV2 + testsV3 === testsTotal,
+  `README numbers add up: ${testsJs} JS + ${testsV1} v1 + ${testsV2} v2 + ${testsV3} v3 === ${testsTotal}`);
 const receipts = one(/\*\*(\d+) real NEAR AI receipts\*\*/, 'receipts', section);
 const tampered = one(/(\d+) deliberately edited/, 'tampered receipts', section);
 const tgas = paidTusdc.reduce((a, b) => a + b, 0) / paidTusdc.length;
@@ -164,7 +165,7 @@ const out = {
   bond: { start: { bond: units(mStart.bond), reserved: units(mStart.reserved), computed: true }, end: { bond: units(mEnd.bond), reserved: units(mEnd.reserved) } },
   liveRun: { txs, failures },
   numbers: {
-    tests: { total: testsTotal, js: testsJs, v1: testsV1, v2: testsV2, date: testsDate },
+    tests: { total: testsTotal, js: testsJs, v1: testsV1, v2: testsV2, v3: testsV3, date: testsDate },
     txs, failures, receipts, tampered, tgas: Math.round(tgas * 10) / 10,
   },
   verify: {
