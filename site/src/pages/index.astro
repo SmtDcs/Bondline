@@ -1,7 +1,7 @@
 ---
 import '../styles/global.css';
 import run from '../data/run.json';
-import { ringSvg, storySvg, STORY_VIEWBOX } from '../lib/stills';
+import { heroGridSvg, miniGridSvg, storySvg, STORY_VIEWBOX, GRID_VIEWBOX } from '../lib/stills';
 import { STILL_U, type Facts } from '../lib/story-model';
 
 const REPO = (import.meta.env.PUBLIC_REPO_URL || 'https://github.com/SmtDcs/claimable-bot-promises').trim();
@@ -25,9 +25,9 @@ const storyText = {
   refusals: refusalErrors, token: T, unit,
 };
 
-const heroRing = ringSvg(88, 50, 1);
-const openRing = ringSvg(72, 38, 0.12, 1.2);
-const closedRing = ringSvg(72, 38, 1, 3.4);
+const heroGrid = heroGridSvg(facts.a);
+const screenshotGrid = miniGridSvg('screenshot');
+const receiptGrid = miniGridSvg('receipt');
 const stills = STILL_U.map((u) => storySvg(u, facts));
 const v = run.verify;
 
@@ -90,7 +90,7 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
 
   <!-- Hero -->
   <section class="hero" id="top" aria-labelledby="h1">
-    <div class="field pix" data-field aria-hidden="true"><canvas></canvas></div>
+    <div class="field" data-field aria-hidden="true"><canvas></canvas></div>
     <div class="hero-grid">
       <div class="hero-copy">
         <p class="label">NEAR AI · NEAR testnet</p>
@@ -103,15 +103,20 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
       </div>
 
       <article class="card hero-card" data-hero-card data-state="binding" aria-label={`Recorded receipt for order ${A.id}`}>
-        <div class="pix" data-ring aria-hidden="true">
-          <svg class="pix-still" viewBox={heroRing.viewBox} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges"><path d={heroRing.dim} fill="#969696" /><path d={heroRing.bright} fill="#f4f4f2" /></svg>
+        <div class="grid-vis" data-hero-grid data-facts={JSON.stringify(facts.a)} aria-hidden="true">
+          <svg viewBox={GRID_VIEWBOX} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" set:html={heroGrid} />
           <canvas></canvas>
         </div>
+        <div class="grid-cap" aria-hidden="true">
+          <span>Each square is 1% of a {A.amount} {T} order.</span>
+          <span class="legend"><i class="k-res"></i>reserved <i class="k-pro"></i>promised <i class="k-paid"></i>paid out</span>
+        </div>
         <div class="hero-card-body">
-          <p class="label plain">Order {A.id} · {A.amount} {T} · max_bps {A.maxBps}</p>
-          <h2 data-when="binding">Receipt on chain.</h2>
+          <p class="label">Order {A.id} · {A.amount} {T} · max_bps {A.maxBps}</p>
+          <h2 data-when="binding claimed">Receipt on chain.</h2>
           <h2 data-when="open">Signed, not registered.</h2>
-          <div class="row" data-when="binding"><span class="chip" data-kind="ok">BINDING · claimable {fmt(A.paid)}</span></div>
+          <div class="row" data-when="binding"><span class="chip" data-kind="binding">BINDING · claimable {fmt(A.paid)}</span></div>
+          <div class="row" data-when="claimed"><span class="chip" data-kind="paid">CLAIMED · paid {fmt(A.paid)}</span></div>
           <div class="row" data-when="open"><span class="chip" data-kind="none">NOT A PROMISE</span></div>
           <code class="tokenline">{A.token}</code>
           <p class="meta">Recorded on testnet, {recorded} · <span class="nw">{run.contract}</span></p>
@@ -120,39 +125,30 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
     </div>
   </section>
 
-  <!-- Numbers -->
-  <section class="band nums-band" aria-label="Numbers" style="padding:0">
-    <dl class="nums">
-      <div><dt>{run.numbers.tests.total}</dt><dd>tests</dd></div>
-      <div><dt>{run.liveRun.txs}</dt><dd>recorded transactions in the v2 testnet run</dd></div>
-      <div><dt>≈{run.numbers.tgas}</dt><dd>Tgas per tUSDC claim</dd></div>
-    </dl>
-  </section>
-
   <!-- Problem -->
   <section class="band" aria-labelledby="h-problem">
-    <div class="band-head">
+    <div class="band-head split">
       <p class="label">Why</p>
       <h2 id="h-problem">“We never promised that.”</h2>
       <p>Support bots offer refunds. Later the shop denies it, and a screenshot proves nothing. Here every reply is signed, the promise is on chain, and the money is already in a bond.</p>
     </div>
     <div class="duo">
       <article class="card motif-card">
-        <div class="pix" aria-hidden="true">
-          <svg class="pix-still" viewBox={openRing.viewBox} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges"><path d={openRing.dim} fill="#969696" /><path d={openRing.bright} fill="#f4f4f2" /></svg>
+        <div class="mini" aria-hidden="true">
+          <svg viewBox={GRID_VIEWBOX} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" set:html={screenshotGrid} />
         </div>
         <div class="body">
-          <p class="label plain">Today</p>
+          <p class="label">Today</p>
           <h3>A screenshot</h3>
           <p>Easy to deny. Nothing to collect.</p>
         </div>
       </article>
       <article class="card motif-card">
-        <div class="pix" aria-hidden="true">
-          <svg class="pix-still" viewBox={closedRing.viewBox} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges"><path d={closedRing.dim} fill="#969696" /><path d={closedRing.bright} fill="#f4f4f2" /></svg>
+        <div class="mini" aria-hidden="true">
+          <svg viewBox={GRID_VIEWBOX} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" set:html={receiptGrid} />
         </div>
         <div class="body">
-          <p class="label plain">Here</p>
+          <p class="label">Here</p>
           <h3>A signed receipt</h3>
           <p>The contract verifies the signature, reads the <code>PROMISE</code> line and pays <code>min(bps, max_bps)</code> of the order once.</p>
         </div>
@@ -231,7 +227,7 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
         <div class="story-vis" aria-hidden="true">
           <div class="vis-top"><span>Order <b data-out="order">{A.id}</b> · {A.amount} {T} · max_bps {A.maxBps}</span><span class="legend"><i class="k-res"></i>reserved <i class="k-pro"></i>promised <i class="k-paid"></i>paid out</span></div>
           <canvas></canvas>
-          <div class="vis-bottom"><span class="chip" data-out="chip" data-kind="none">NOT A PROMISE</span><span>Reserved <b data-out="reserved">0 {T}</b></span><span>Paid <b data-out="paid">0 {T}</b></span></div>
+          <div class="vis-bottom"><span class="chip" data-out="chip" data-kind="none">NOT A PROMISE</span><span>Reserved <i class="k-res"></i><b data-out="reserved">0 {T}</b></span><span>Paid <i class="k-paid"></i><b data-out="paid">0 {T}</b></span></div>
         </div>
 
         <ol class="story-ticks" aria-label="Jump to a step">
@@ -244,48 +240,51 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
 
   <!-- v3: customer registration -->
   <section class="band" id="v3" aria-labelledby="h-v3">
-    <div class="band-head">
+    <div class="band-head split normal">
       <p class="label">v3</p>
       <h2 id="h-v3">The customer registers the promise</h2>
-      <p>On v2 a shop could skip registering a reply it regrets. On v3 (<code>claimable-promises.testnet</code>) the customer registers it. The shop's server signs every request it sends to NEAR AI, so the contract accepts only replies the shop's own bot produced for that order and buyer. The contract has no access keys and no upgrade method.</p>
-      <p>The shop's server is still the only source of the exact reply bytes; a server that withholds them can't be forced to hand them over.</p>
-      <p><a href={`${REPO}/blob/main/docs/V3.md`}>Read the design →</a></p>
+      <div class="split-r">
+        <p>On v2 a shop could skip registering a reply it regrets. On v3 (<code>claimable-promises.testnet</code>) the customer registers it. The shop's server signs every request it sends to NEAR AI, so the contract accepts only replies the shop's own bot produced for that order and buyer. The contract has no access keys and no upgrade method.</p>
+        <p><a href={`${REPO}/blob/main/docs/V3.md`}>Read the design →</a></p>
+      </div>
     </div>
   </section>
 
   <!-- Verify in the browser -->
   <section class="band verify" id="verify" aria-labelledby="h-verify" data-verify data-bundle={JSON.stringify(v)}>
-    <div class="band-head">
-      <p class="label">Verify</p>
-      <h2 id="h-verify">Check the signature in your browser</h2>
-      <p>The reply for order {v.orderId}, byte for byte as the TEE returned it. Edit it and the check fails.</p>
-    </div>
     <div class="verify-grid">
-      <article class="card v-reply">
-        <p class="label plain">Reply bytes · order {v.orderId}</p>
-        <p class="msg" data-v="reply">{A.reply}</p>
-        <code class="tokenline" data-v="token">{A.token}</code>
-        <div class="v-actions">
-          <button class="btn" type="button" data-act="edit" aria-pressed="false">Edit 2000 → 3000</button>
-          <button class="btn" type="button" data-act="forge" aria-pressed="false" disabled>Also rewrite the signed hash</button>
-          <button class="btn" type="button" data-act="reset" disabled>Reset</button>
+      <div class="v-left">
+        <div class="band-head">
+          <p class="label">Verify</p>
+          <h2 id="h-verify">Check the signature in your browser</h2>
+          <p>The reply for order {v.orderId}, byte for byte as the TEE returned it. Edit it and the check fails.</p>
         </div>
-      </article>
+        <article class="card v-reply">
+          <p class="label">Reply bytes · order {v.orderId}</p>
+          <p class="msg" data-v="reply">{A.reply}</p>
+          <code class="tokenline" data-v="token">{A.token}</code>
+          <div class="v-actions">
+            <button class="btn" type="button" data-act="edit" aria-pressed="false">Edit 2000 → 3000</button>
+            <button class="btn" type="button" data-act="forge" aria-pressed="false" disabled>Also rewrite the signed hash</button>
+            <button class="btn" type="button" data-act="reset" disabled>Reset</button>
+          </div>
+        </article>
+      </div>
       <div class="card" aria-live="polite">
         <div class="v-rows">
           <div class="v-row" data-v="row-hash" data-state="na">
-            <h3>1 · sha256(reply bytes) equals the signed hash</h3>
+            <h3>sha256(reply bytes) equals the signed hash</h3>
             <span class="v-res">RECORDED</span>
             <dl><dt>computed</dt><dd data-v="computed">{short(v.responseHash)}</dd><dt>signed</dt><dd data-v="claimed">{short(v.responseHash)}</dd></dl>
           </div>
           <div class="v-row" data-v="row-sig" data-state="na">
-            <h3>2 · Ed25519 signature over the signed text</h3>
+            <h3>Ed25519 signature over the signed text</h3>
             <span class="v-res">RECORDED</span>
             <dl><dt>key</dt><dd>{short(v.publicKeyHex)}</dd><dt>text</dt><dd data-v="signed">{v.model}:{short(v.requestHash)}:{short(v.responseHash)}</dd></dl>
           </div>
         </div>
         <div class="v-verdict" data-v="verdict" data-state="na">
-          <span class="label plain">Result in this browser</span>
+          <span class="label">Result in this browser</span>
           <span class="v-res">NOT CHECKED HERE</span>
           <p data-v="explain"></p>
         </div>
@@ -299,47 +298,56 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
       <p class="label">How it works</p>
       <h2 id="h-near">What the contract enforces</h2>
     </div>
-    <div class="bento">
-      <article class="card w7">
-        <p class="n">01</p>
-        <h3>Signature check</h3>
-        <p><code>register_receipt</code> runs <code>env::ed25519_verify</code> over the model id and the hashes of the request and response.</p>
-        <code class="tokenline">z-ai/glm-5.3-flash:sha256(request bytes):sha256(response bytes)</code>
+    <div class="spec">
+      <article class="spec-row">
+        <h3><i class="mk bad" aria-hidden="true"></i>Signature check</h3>
+        <div>
+          <p><code>register_receipt</code> runs <code>env::ed25519_verify</code> over the model id and the hashes of the request and response.</p>
+          <code class="tokenline">z-ai/glm-5.3-flash:sha256(request bytes):sha256(response bytes)</code>
+        </div>
       </article>
-      <article class="card w5">
-        <p class="n">02</p>
-        <h3>Shop-set cap</h3>
-        <p><code>claim</code> pays <code>min(bps, max_bps)</code> × the order amount, once.</p>
-        <code class="tokenline">min({B.tokenBps}, {B.maxBps}) = {B.paidBps}</code>
+      <article class="spec-row">
+        <h3><i class="mk pro" aria-hidden="true"></i>Shop-set cap</h3>
+        <div>
+          <p><code>claim</code> pays <code>min(bps, max_bps)</code> × the order amount, once.</p>
+          <code class="tokenline">min({B.tokenBps}, {B.maxBps}) = {B.paidBps}</code>
+        </div>
       </article>
-      <article class="card w5">
-        <p class="n">03</p>
-        <h3>Reserved funds</h3>
-        <p>The cap is locked from the bond when the order is created.</p>
+      <article class="spec-row">
+        <h3><i class="mk res" aria-hidden="true"></i>Reserved funds</h3>
+        <div>
+          <p>The cap is locked from the bond when the order is created.</p>
+        </div>
       </article>
-      <article class="card w7">
-        <p class="n">04</p>
-        <h3>Scoped keys</h3>
-        <p>The shop's server can only register receipts; the demo shopper key can only claim.</p>
+      <article class="spec-row">
+        <h3><i class="mk dim" aria-hidden="true"></i>Scoped keys</h3>
+        <div>
+          <p>The shop's server can only register receipts; the demo shopper key can only claim.</p>
+        </div>
       </article>
     </div>
   </section>
 
   <!-- Try -->
   <section class="band" id="try" aria-labelledby="h-try">
-    <div class="band-head">
-      <p class="label">Get started</p>
-      <h2 id="h-try">Run it locally</h2>
-      <p>Node 22.22.2+. No keys needed.</p>
+    <div class="band-head inline">
+      <div>
+        <p class="label">Get started</p>
+        <h2 id="h-try">Run it locally</h2>
+      </div>
+      <p class="note">Node 22.22.2+. No keys needed.</p>
     </div>
     <div class="try-grid">
       <ol class="steps">
-        <li class="step"><span class="n">00</span><code>git clone {REPO}</code><button class="copy" type="button" data-copy={`git clone ${REPO}`} hidden>Copy</button></li>
-        {steps.map((s, i) => (
-          <li class="step"><span class="n">{String(i + 1).padStart(2, '0')}</span><code>{s.cmd}</code><button class="copy" type="button" data-copy={s.cmd} hidden aria-label={`Copy ${s.cmd}`}>Copy</button><p set:html={s.out} /></li>
+        <li class="step"><code>git clone {REPO}</code><button class="copy" type="button" data-copy={`git clone ${REPO}`} hidden>Copy</button></li>
+        {steps.map((s) => (
+          <li class="step"><code>{s.cmd}</code><button class="copy" type="button" data-copy={s.cmd} hidden aria-label={`Copy ${s.cmd}`}>Copy</button><p set:html={s.out} /></li>
         ))}
       </ol>
       <dl class="card facts">
+        <div><dt>Tests</dt><dd>{run.numbers.tests.total}</dd></div>
+        <div><dt>v2 testnet run</dt><dd>{run.liveRun.txs} recorded transactions</dd></div>
+        <div><dt>Claim cost</dt><dd>≈{run.numbers.tgas} Tgas per tUSDC claim</dd></div>
         <div><dt>Contract (v3)</dt><dd>claimable-promises.testnet</dd></div>
         <div><dt>Contract (v2)</dt><dd>{run.contract}</dd></div>
         <div><dt>Token</dt><dd>sm1110-tusdc.testnet ({T}, 6 decimals)</dd></div>
@@ -350,7 +358,7 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
 
   <!-- Footer -->
   <footer class="band footer">
-    <div class="field pix" data-field aria-hidden="true"><canvas></canvas></div>
+    <div class="field" data-field aria-hidden="true"><canvas></canvas></div>
     <div class="footer-grid">
       <div>
         <p><b>{title}</b> · MIT · <a href={REPO}>GitHub</a></p>

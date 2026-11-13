@@ -1,4 +1,6 @@
 import { scene, W, H, SHOP_X, SHOP_Y, SHOP_COLS, type Facts } from '../lib/story-model';
+import { drawCells } from '../lib/grid-draw';
+import { HEX } from '../lib/palette';
 import { calm } from './pixcanvas';
 
 const root = document.querySelector<HTMLElement>('[data-story]');
@@ -47,7 +49,10 @@ if (root && canvas && ctx && (force || !calm())) {
     lastKey = key;
     out.order.textContent = o.id;
     out.chip.textContent = chip;
-    out.chip.dataset.kind = bad ? 'bad' : s.status === 'none' ? 'none' : 'ok';
+    out.chip.dataset.kind = bad ? 'bad'
+      : s.status === 'none' ? 'none'
+      : s.status === 'binding' || s.status === 'capped' ? 'binding'
+      : 'paid';   // claimed, paid-capped
     out.reserved.textContent = `${+(s.reservedPct * text.unit).toFixed(1)} ${text.token}`;
     out.paid.textContent = `${+(s.paidPct * text.unit).toFixed(1)} ${text.token}`;
     beats.forEach((b, i) => b.classList.toggle('is-on', i === beat));
@@ -64,16 +69,36 @@ if (root && canvas && ctx && (force || !calm())) {
     ctx!.fillText(label, x, y);
   }
 
+  const trayRows = Math.ceil(Math.max(facts.a.paidPct, facts.b.paidPct) / SHOP_COLS);
+
   function draw(u: number) {
     const t0 = performance.now();
     const s = scene(u, facts);
-    const unit = Math.max(4, Math.floor(Math.min(w / (W + 0.5), h / (H + 1.6))));
+    const unit = Math.max(4, Math.floor(Math.min(w / (W + 2.5), h / (H + 2.4))));
     const gap = Math.max(2, Math.round(unit * 0.24));
     const sq = unit - gap;
-    const ox = Math.round((w - unit * W + gap) / 2), oy = Math.round((h - unit * H + gap) / 2);
+    // the row ruler takes 1.7 units to the left of the order grid
+    const ox = Math.round((w - unit * (W + 1.7) + gap) / 2 + 1.7 * unit), oy = Math.round((h - unit * H + gap) / 2);
     ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx!.clearRect(0, 0, w, h);
     ctx!.lineWidth = 1;
+    ctx!.textBaseline = 'middle';
+
+    // row ruler: 10% ... 100%
+    ctx!.font = `500 10px "Geist Mono Variable", ui-monospace, monospace`;
+    ctx!.textAlign = 'right';
+    ctx!.fillStyle = HEX.dim;
+    for (let r = 0; r < 10; r++) ctx!.fillText(`${(r + 1) * 10}%`, ox - 12, Math.round(oy + r * unit + sq / 2));
+    ctx!.textAlign = 'left';
+
+    // shopper tray: a frame around the slots, padded by gap * 2
+    const pad = gap * 2;
+    const tx = ox + SHOP_X * unit - pad, ty = oy + SHOP_Y * unit - pad;
+    ctx!.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx!.strokeRect(tx + 0.5, ty + 0.5, SHOP_COLS * unit - gap + pad * 2 - 1, trayRows * unit - gap + pad * 2 - 1);
+    ctx!.fillStyle = HEX.dim;
+    ctx!.fillText('shopper', tx, ty - 11);
+    ctx!.fillText('order', ox, oy - 20);
 
     // shopper slots
     ctx!.strokeStyle = 'rgba(255,255,255,0.1)';
@@ -81,20 +106,9 @@ if (root && canvas && ctx && (force || !calm())) {
       const x = ox + (SHOP_X + (j % SHOP_COLS)) * unit, y = oy + (SHOP_Y + Math.floor(j / SHOP_COLS)) * unit;
       ctx!.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1);
     }
-    for (const c of s.cells) {
-      const x = Math.round(ox + c.x * unit), y = Math.round(oy + c.y * unit);
-      if (c.fill > 0.01) {
-        ctx!.fillStyle = c.white ? `rgba(244,244,242,${c.fill})` : `rgba(84,84,82,${c.fill})`;
-        ctx!.fillRect(x, y, sq, sq);
-      }
-      if (c.outline > 0.01) {
-        ctx!.strokeStyle = `rgba(244,244,242,${c.outline})`;
-        ctx!.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1);
-      }
-    }
+    drawCells(ctx!, s.cells, { ox, oy, unit, gap });
     const rowsCap = facts[s.order].capPct / 10;
     ctx!.font = `500 11px "Geist Mono Variable", ui-monospace, monospace`;
-    ctx!.textBaseline = 'middle';
     if (s.capLine > 0.01) {
       const y = oy + rowsCap * unit - gap / 2;
       ctx!.strokeStyle = `rgba(244,244,242,${s.capLine})`;

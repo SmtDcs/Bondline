@@ -7,11 +7,15 @@
 export interface OrderFacts { tokenPct: number; capPct: number; paidPct: number }
 export interface Facts { a: OrderFacts; b: OrderFacts }
 
+export type Tone = 'res' | 'pro' | 'paid' | 'bad';   // fill colour: reserved, promised, paid out, refused
+export type Edge = 'empty' | 'dim' | 'pro' | 'bad';  // outline colour ('dim' is only used by the hero)
+
 export interface Cell {
   x: number; y: number;     // in cell units
-  outline: number;          // 0..1 alpha of a white outline
-  fill: number;             // 0..1 alpha of the fill
-  white: boolean;           // fill colour: white (paid / in flight) or grey (reserved)
+  outline: number;          // 0..1 alpha of the outline, in the `edge` colour
+  fill: number;             // 0..1 alpha of the fill, in the `tone` colour
+  tone: Tone;
+  edge: Edge;
 }
 export interface Scene {
   order: 'a' | 'b';
@@ -53,7 +57,7 @@ export function scene(u: number, f: Facts): Scene {
     for (let i = 0; i < 100; i++) {
       const h = home(i);
       const appear = seg(u, 0.02 + i * 0.0012, 0.1 + i * 0.0012);
-      const c: Cell = { x: h.x, y: h.y, outline: 0.16 * appear, fill: 0, white: false };
+      const c: Cell = { x: h.x, y: h.y, outline: appear, fill: 0, tone: 'res', edge: 'empty' };
       if (i < o.capPct) {
         const res = seg(u, 0.18 + i * 0.008, 0.26 + i * 0.008);
         const released = seg(u, 2.6, 2.8);
@@ -62,14 +66,14 @@ export function scene(u: number, f: Facts): Scene {
       if (i < o.paidPct) {
         // promised cells: marked when the receipt lands, then paid out
         const bind = seg(u, 0.6, 0.72);
-        c.outline = Math.max(c.outline, bind * 0.95);
-        if (bind > 0) { c.white = true; c.fill = Math.max(c.fill * (1 - bind), 0.62 * bind); }
+        if (bind * 0.95 > 0.16) { c.edge = 'pro'; c.outline = bind * 0.95; }
+        if (bind > 0) { c.tone = 'pro'; c.fill = Math.max(c.fill * (1 - bind), 0.62 * bind); }
         const fly = ease(seg(u, 2.12 + i * 0.012, 2.42 + i * 0.012));
         if (fly > 0) {
           const s = slot(i);
-          cells.push({ x: h.x, y: h.y, outline: 0.16, fill: 0, white: false });
+          cells.push({ x: h.x, y: h.y, outline: 1, fill: 0, tone: 'res', edge: 'empty' });
           c.x = h.x + (s.x - h.x) * fly; c.y = h.y + (s.y - h.y) * fly;
-          c.fill = 1; c.white = true; c.outline = 0;
+          c.fill = 1; c.tone = 'paid'; c.outline = 0;
         }
       }
       cells.push(c);
@@ -82,7 +86,7 @@ export function scene(u: number, f: Facts): Scene {
         for (let i = from; i < to; i++) {
           const h = home(i), s = slot(i);
           const d = moving ? k * 0.3 : 0;
-          cells.push({ x: h.x + (s.x - h.x) * d, y: h.y + (s.y - h.y) * d, outline: 0.9 * k, fill: moving ? 0.55 * k : 0, white: true });
+          cells.push({ x: h.x + (s.x - h.x) * d, y: h.y + (s.y - h.y) * d, outline: 0.9 * k, fill: moving ? 0.55 * k : 0, tone: 'bad', edge: 'bad' });
         }
       };
       tryMove(o.paidPct, o.capPct, 3.1, 3.37, true);   // claim edited bytes: the extra 10%
@@ -97,21 +101,22 @@ export function scene(u: number, f: Facts): Scene {
     capLine = seg(u, 4.36, 4.5);
     for (let i = 0; i < 100; i++) {
       const h = home(i);
-      const c: Cell = { x: h.x, y: h.y, outline: 0.16, fill: 0, white: false };
+      const c: Cell = { x: h.x, y: h.y, outline: 1, fill: 0, tone: 'res', edge: 'empty' };
       const promised = seg(u, 4.2 + i * 0.0015, 4.3 + i * 0.0015);
       const dropped = i >= o.capPct ? seg(u, 4.5, 4.62) : 0;
-      c.outline = Math.max(c.outline, promised * (1 - dropped) * 0.95);
+      const pa = promised * (1 - dropped) * 0.95;
+      if (pa > 0.16) { c.outline = pa; c.edge = dropped > 0 ? 'bad' : 'pro'; }
       if (i < o.capPct) {
         const released = seg(u, 4.9, 4.98);
         c.fill = 0.9 * (1 - released);
         const kept = seg(u, 4.36, 4.5);
-        if (kept > 0) { c.white = true; c.fill = 0.9 * (1 - kept) + 0.62 * kept; }
+        if (kept > 0) { c.tone = 'pro'; c.fill = 0.9 * (1 - kept) + 0.62 * kept; }
         const fly = ease(seg(u, 4.55 + i * 0.006, 4.8 + i * 0.006));
         if (fly > 0) {
           const s = slot(i);
-          cells.push({ x: h.x, y: h.y, outline: 0.16, fill: 0, white: false });
+          cells.push({ x: h.x, y: h.y, outline: 1, fill: 0, tone: 'res', edge: 'empty' });
           c.x = h.x + (s.x - h.x) * fly; c.y = h.y + (s.y - h.y) * fly;
-          c.fill = 1; c.white = true; c.outline = 0;
+          c.fill = 1; c.tone = 'paid'; c.outline = 0;
         }
       }
       cells.push(c);
