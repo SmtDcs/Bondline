@@ -53,7 +53,7 @@ const steps = [
   { cmd: 'npm run verify:live-run', out: `Re-reads all ${run.liveRun.txs} recorded v2 transactions from the testnet RPC and compares them: <code>LIVE RUN REPLAYED</code>` },
 ];
 const title = 'Claimable bot promises';
-const description = "If a shop's AI support bot promises you a refund, you can collect it from the shop's bond on NEAR, even if the shop later denies it. Testnet prototype.";
+const description = "If a shop's AI support bot promises you a refund, you can collect it from the shop's bond on NEAR, even if the shop later denies it — provided the shop registered the signed reply. Testnet prototype.";
 ---
 <!doctype html>
 <html lang="en">
@@ -133,11 +133,12 @@ const description = "If a shop's AI support bot promises you a refund, you can c
   <!-- Numbers -->
   <section class="band nums-band" aria-label="Numbers" style="padding:0">
     <dl class="nums">
-      <div><dt>384</dt><dd>tests: 241 JS, 16 Rust on v1, 127 Rust on v2, all passed on 2026-11-11</dd></div>
+      <div><dt>{run.numbers.tests.total}</dt><dd>tests: {run.numbers.tests.js} JS, {run.numbers.tests.v1} Rust on v1, {run.numbers.tests.v2} Rust on v2, all passed on {run.numbers.tests.date}</dd></div>
       <div><dt>{run.liveRun.txs}</dt><dd>recorded testnet transactions of the v2 live run, {run.liveRun.failures} of them deliberate failures</dd></div>
-      <div><dt>7</dt><dd>real NEAR AI receipts verified offline; 3 deliberately edited copies are rejected</dd></div>
-      <div><dt>≈7.7</dt><dd>Tgas for a whole tUSDC claim, measured on testnet</dd></div>
+      <div><dt>{run.numbers.receipts}</dt><dd>real NEAR AI receipts verified offline; {run.numbers.tampered} deliberately edited copies are rejected</dd></div>
+      <div><dt>≈{run.numbers.tgas}</dt><dd>Tgas for a whole tUSDC claim, measured on testnet</dd></div>
     </dl>
+    <p class="meta nums-src">Tests and receipts are read from the repository README; transactions, failures and Tgas from the recorded run file. Generated from <span class="nw">{run.numbers.sourceCommit}</span> (README sha256 {run.numbers.readmeSha}…).</p>
   </section>
 
   <!-- Problem -->
@@ -301,7 +302,7 @@ const description = "If a shop's AI support bot promises you a refund, you can c
   <section class="band" id="near" aria-labelledby="h-near">
     <div class="band-head">
       <p class="label">What NEAR does here</p>
-      <h2 id="h-near">The contract decides the payout. <span class="g">The shop only decides whether to register.</span></h2>
+      <h2 id="h-near">The contract enforces the payout and its cap. <span class="g">The shop chooses what to register, the cap and each order's expiry.</span></h2>
     </div>
     <div class="bento">
       <article class="card w7">

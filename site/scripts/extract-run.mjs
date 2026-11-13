@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -11,12 +12,19 @@ const read = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
 const must = (cond, what) => { if (!cond) { console.error(`extract-run: ASSERT FAILED: ${what}`); process.exit(1); } };
 const sha256hex = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
-// Deploying only site/ (e.g. `vercel deploy` from this folder) leaves the fixtures behind:
-// then keep the committed src/data/run.json, which this script wrote and asserted from them.
+// Deploying only site/ (e.g. `vercel deploy` from this folder) leaves the fixtures behind: then the
+// committed src/data/run.json is used. That is an explicit mode, not a silent one: the artifact must
+// carry its provenance, so a deploy says which commit it was generated from instead of pretending the
+// numbers were just re-read.
 const committed = path.join(here, '../src/data/run.json');
 if (!fs.existsSync(path.join(repo, 'fixtures/replay/transcript-v2.json'))) {
-  if (fs.existsSync(committed)) { console.log('extract-run: fixtures not present, using the committed src/data/run.json'); process.exit(0); }
-  must(false, 'fixtures missing and no committed src/data/run.json');
+  must(fs.existsSync(committed), 'fixtures missing and no committed src/data/run.json');
+  const prev = JSON.parse(fs.readFileSync(committed, 'utf8'));
+  must(prev.numbers && prev.numbers.sourceCommit, 'the committed run.json has no numbers.sourceCommit (regenerate it from the full repo)');
+  must(prev.numbers.sourceCommit === 'uncommitted' || /^[0-9a-f]{7,40}(-dirty)?$/.test(prev.numbers.sourceCommit),
+    `committed run.json sourceCommit looks wrong: ${prev.numbers.sourceCommit}`);
+  console.log(`extract-run: fixtures not present (site-only build), keeping the committed src/data/run.json from ${prev.numbers.sourceCommit}`);
+  process.exit(0);
 }
 const T = read('fixtures/replay/transcript-v2.json');
 must(T.type === 'bot-promises/replay/v2', 'transcript type');
@@ -116,9 +124,52 @@ must(txs === 91 && failures === 32, `live run: 91 txs, 32 failures (got ${txs}, 
 const paidTusdc = L.gas.claims.filter((c) => c.outcome === 'paid' && c.ft_transfer_T != null).map((c) => c.total_T);
 must(paidTusdc.length >= 3 && paidTusdc.every((g) => g > 7.6 && g < 7.8), 'a paid tUSDC claim burns about 7.7 Tgas');
 
+// Test counts come from the repo README, not from this file: the page must never show a number the
+// README contradicts. A change to the README's "Numbers" section fails the build until run.json is
+// regenerated (and a site-only deploy keeps the committed run.json, which carries its source commit).
+const readme = fs.readFileSync(path.join(repo, 'README.md'), 'utf8');
+// The "## Numbers" section only, matched as an exact level-two heading at the start of a line.
+const section = (() => {
+  const lines = readme.split('\n');
+  const start = lines.findIndex((l) => l.trim() === '## Numbers (all re-checkable in this repo)' || l.trim() === '## Numbers');
+  must(start >= 0, 'README has an exact "## Numbers" heading');
+  const next = lines.findIndex((l, i) => i > start && /^## /.test(l));
+  return lines.slice(start + 1, next < 0 ? undefined : next).join('\n');
+})();
+// Exactly one total, so a second contradictory count cannot be ignored.
+const totals = [...section.matchAll(/\*\*(\d+) tests\*\*/g)].map((m) => Number(m[1]));
+must(totals.length === 1, `README Numbers section has exactly one "**<n> tests**" line (found ${totals.length})`);
+const numbersLine = section.split('\n').find((l) => /\*\*\d+ tests\*\*/.test(l));
+const one = (re, what, text) => {
+  const all = [...text.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g'))];
+  must(all.length === 1, `README numbers: expected exactly one "${what}" (found ${all.length})`);
+  return Number(all[0][1]);
+};
+const testsTotal = one(/\*\*(\d+) tests\*\*/, 'total tests', numbersLine);
+const testsJs = one(/(\d+) JS\b/, 'JS tests', numbersLine);
+const testsV1 = one(/(\d+) Rust on v1\b/, 'v1 Rust tests', numbersLine);
+const testsV2 = one(/(\d+) Rust on v2\b/, 'v2 Rust tests', numbersLine);
+const dates = [...numbersLine.matchAll(/all passed on (\d{4}-\d{2}-\d{2})/g)];
+must(dates.length === 1, 'README numbers line: expected exactly one pass date');
+const testsDate = dates[0][1];
+must(testsJs + testsV1 + testsV2 === testsTotal,
+  `README numbers add up: ${testsJs} JS + ${testsV1} v1 + ${testsV2} v2 === ${testsTotal}`);
+const receipts = one(/\*\*(\d+) real NEAR AI receipts\*\*/, 'receipts', section);
+const tampered = one(/(\d+) deliberately edited/, 'tampered receipts', section);
+// Provenance: the exact commit the numbers were read from. A release build must be clean. A local build
+// with uncommitted inputs says so ("uncommitted") instead of printing a commit a visitor cannot check out.
+let sourceCommit = 'uncommitted';
+let readmeSha = sha256hex(Buffer.from(readme, 'utf8')).slice(0, 16);
+try {
+  const dirty = execFileSync('git', ['-C', repo, 'status', '--porcelain', '--', 'README.md', 'fixtures/'], { encoding: 'utf8' }).trim();
+  const head = execFileSync('git', ['-C', repo, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+  sourceCommit = dirty ? 'uncommitted' : head;
+} catch { /* a site-only checkout has no git history: the committed run.json keeps the value it was built with */ }
+const tgas = paidTusdc.reduce((a, b) => a + b, 0) / paidTusdc.length;
+
 const s = A.bundle.signature;
 const out = {
-  generatedFrom: ['fixtures/replay/transcript-v2.json', chatA.bundle_file, chatB.bundle_file, 'fixtures/runs/v2-live-run.json'],
+  generatedFrom: ['README.md', 'fixtures/replay/transcript-v2.json', chatA.bundle_file, chatB.bundle_file, 'fixtures/runs/v2-live-run.json'],
   contract: T.contract, recordedAt: T.recorded_at, token: tok.symbol,
   orders: { a: A.out, b: B.out },
   refusals: {
@@ -128,6 +179,11 @@ const out = {
   },
   bond: { start: { bond: units(mStart.bond), reserved: units(mStart.reserved), computed: true }, end: { bond: units(mEnd.bond), reserved: units(mEnd.reserved) } },
   liveRun: { txs, failures },
+  numbers: {
+    tests: { total: testsTotal, js: testsJs, v1: testsV1, v2: testsV2, date: testsDate },
+    txs, failures, receipts, tampered, tgas: Math.round(tgas * 10) / 10,
+    sourceCommit, readmeSha,
+  },
   verify: {
     orderId: A.out.id, model: A.bundle.model,
     responseB64: A.bundle.response_b64, requestHash: A.bundle.request_hash, responseHash: A.bundle.response_hash,

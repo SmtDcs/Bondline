@@ -1,5 +1,6 @@
 {
   "generatedFrom": [
+    "README.md",
     "fixtures/replay/transcript-v2.json",
     "fixtures/live/a123-v2.json",
     "fixtures/live/a124-v2.json",
@@ -70,6 +71,22 @@
   "liveRun": {
     "txs": 91,
     "failures": 32
+  },
+  "numbers": {
+    "tests": {
+      "total": 391,
+      "js": 248,
+      "v1": 16,
+      "v2": 127,
+      "date": "2026-11-13"
+    },
+    "txs": 91,
+    "failures": 32,
+    "receipts": 7,
+    "tampered": 3,
+    "tgas": 7.7,
+    "sourceCommit": "457486a",
+    "readmeSha": "de02c28e9e4c612c"
   },
   "verify": {
     "orderId": "A123-23",
