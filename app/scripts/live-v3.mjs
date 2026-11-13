@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Recorder for the v3 live run on TESTNET (operator script; NOT run by the build, nothing in the repo comes from it yet).
+// Recorder for the v3 live run on TESTNET (operator script; NOT run by the build). It wrote fixtures/runs/v3-live-run.json.
 // Usage: NODE_USE_ENV_PROXY=1 node app/scripts/live-v3.mjs <step> [<step> ...]
 // Steps: V1 V2 V3 V4 V5 V6   (in that order; V2/V5 need the app running against the v3 contract with RELAYER_REGISTERS=0:
 //   CONTRACT_ID=<v3> RELAYER_REGISTERS=0 SHOP_AUTH_SEED_HEX=... npm run dev, and orders A123-<RUN>/A124-<RUN> from

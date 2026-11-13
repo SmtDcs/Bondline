@@ -8,7 +8,7 @@
 // 4. --send: calls register_receipt_as_buyer signed by BUYER_ID with CUSTOMER_SECRET_KEY (your full-access key or a
 //    function-call key for this contract; your storage balance on the contract pays the record). Without --send it
 //    prints the arguments and sends nothing.
-// The contract is --contract or $CONTRACT_ID (there is no deployed v3 to pin yet). Exit 0 = registered or
+// The contract is --contract or $CONTRACT_ID (the deployed v3 is claimable-promises.testnet). Exit 0 = registered or
 // registrable, 1 = a check failed.
 import fs from 'node:fs';
 import { positionalArgs, flagValue } from '../lib/cli-args.mjs';
