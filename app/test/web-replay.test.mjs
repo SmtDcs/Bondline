@@ -1,5 +1,5 @@
-// T19: the web page on the replay server with ?offline=1. Drives web/app.js with a minimal
-// document (jsdom is not a dependency, PLAN section 6) and a fetch stub that REFUSES any URL
+// The web page on the replay server with ?offline=1. Drives web/app.js with a minimal
+// document (jsdom is not a dependency) and a fetch stub that REFUSES any URL
 // outside localhost: every beat must run from the recorded transcript alone.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -140,7 +140,7 @@ test('?offline=1 replay runs every beat from the transcript, with no testnet cal
 
     // Orange badge with the transcript date, contract link, orders from the steps.
     assert.equal(els['mode-badge'].className, 'badge replay');
-    // client-2: the committed transcript marks its recomputed views, so the badge says they were recomputed.
+    // The committed transcript marks its recomputed views, so the badge says they were recomputed.
     assert.equal(transcript.computed_views, true);
     assert.equal(els['mode-badge'].textContent, `REPLAY of a real testnet run recorded ${transcript.recorded_at.slice(0, 10)} · BINDING/Tamper badges and the pre-claim meter recomputed from the recorded bytes`);
     assert.equal(els['contract-link'].children[0].href, `https://testnet.nearblocks.io/address/${transcript.contract}`);

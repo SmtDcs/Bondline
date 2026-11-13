@@ -142,7 +142,7 @@ export async function retry(fn, { tries = 5, delayMs = 1500, shouldRetry = () =>
   throw last;
 }
 
-/** client-5: true when the RPC answered "I do not have this transaction" (a non-archival node garbage-collects old
+/** True when the RPC answered "I do not have this transaction" (a non-archival node garbage-collects old
  *  outcomes after a few epochs). That answer is final for an old tx: retrying it only wastes time. */
 export function isTxNotServed(e) {
   const text = `${e?.type ?? ''} ${e?.name ?? ''} ${e?.message ?? ''}`;

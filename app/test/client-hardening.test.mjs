@@ -1,4 +1,5 @@
-// Final audit, group "client": client-1, 2, 4, 5, 6, 8, 9, 10 (client-3 is app/test/replay-server-reload.test.mjs).
+// Client hardening: asset detection, recomputed replay views, signer validity, archival RPC fallback,
+// argument parsing, demo setup re-runs and RPC lag.
 // Every test here fails without its fix.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +18,7 @@ import { makeReplay } from '../lib/replay.mjs';
 import { sha256Hex } from '../lib/nearai.mjs';
 
 globalThis.location = new URL('http://127.0.0.1:8787/');
-const app = await import('../../web/app.js?audit-client');
+const app = await import('../../web/app.js?client');
 app.BINDING_RETRY.delayMs = 1;
 
 const TOKEN = { id: 'tusdc.testnet', symbol: 'tUSDC', decimals: 6 };
@@ -62,13 +63,13 @@ const BASE_CONFIG = {
   mode: 'live', network: 'testnet', rpcUrl: 'https://rpc.testnet.fastnear.com',
   contractId: 'v2.cbp-sm1110.testnet', merchantId: MERCHANT, buyerId: BUYER,
   model: 'z-ai/glm-5.3-flash', contract_api: 2, tokens: [TOKEN],
-  // client-1: the startup snapshot has NO token for this order (its get_order failed at server start)
+  // The startup snapshot has NO token for this order (its get_order failed at server start)
   orders: [{ order_id: 'A123-11', label: 'Broken mug', token: null, amount: null, expires_at_ms: null }],
 };
 const settle = async (els) => { for (let i = 0; i < 200 && els['order-select'].children.length === 0; i++) await new Promise(r => setTimeout(r, 0)); };
 
 // ---------- client-1 ----------
-test('client-1: the page takes the asset from the chain answer: a tUSDC promise with a token-less config shows 4 tUSDC, not 0.000 NEAR', async () => {
+test('the page takes the asset from the chain answer: a tUSDC promise with a token-less config shows 4 tUSDC, not 0.000 NEAR', async () => {
   const els = fakePage();
   await withFetch((call) => {
     if (call.url === '/api/config') return jsonResponse(BASE_CONFIG);
@@ -83,7 +84,7 @@ test('client-1: the page takes the asset from the chain answer: a tUSDC promise 
     throw new Error(`unexpected ${method}`);
   }, async () => {
     try {
-      await import('../../web/app.js?audit-client-1');
+      await import('../../web/app.js?client-1');
       await settle(els);
       els['chat-input'].value = 'my mug broke';
       await els['chat-form'].listeners.submit({ preventDefault() {} });
@@ -97,7 +98,7 @@ test('client-1: the page takes the asset from the chain answer: a tUSDC promise 
   });
 });
 
-test('client-1: an amount in a token with no metadata is never rendered as NEAR; the chain answer wins over the page guess', async () => {
+test('an amount in a token with no metadata is never rendered as NEAR; the chain answer wins over the page guess', async () => {
   assert.equal(app.formatAsset('4000000', 'other.testnet', [TOKEN]), '4000000 raw units of other.testnet (no token metadata)');
   assert.equal(app.formatAsset('400000000000000000000000', null, [TOKEN]), '0.400 NEAR');
   assert.equal(app.chainToken({ ok: true, token: 'x.testnet' }, null), 'x.testnet');
@@ -122,7 +123,7 @@ const v2Provider = (getOrder) => ({
 const liveCfg = (orders) => ({ contractId: 'v2.cbp-sm1110.testnet', merchantId: MERCHANT, buyerId: BUYER, orders });
 const NO_WAIT = { tries: 3, delayMs: 0 };
 
-test('client-1: startup retries get_order and DROPS an order whose view keeps failing or does not exist, instead of keeping it token-less', async () => {
+test('startup retries get_order and DROPS an order whose view keeps failing or does not exist, instead of keeping it token-less', async () => {
   const logs = [];
   let calls = 0;
   const failing = v2Provider(() => { calls++; throw new Error('fetch failed'); });
@@ -136,7 +137,7 @@ test('client-1: startup retries get_order and DROPS an order whose view keeps fa
   assert.match(logs.join('\n'), /A2 hidden: it is not registered/);
 });
 
-test('client-1: a get_order that fails once and then answers keeps the order WITH its token', async () => {
+test('a get_order that fails once and then answers keeps the order WITH its token', async () => {
   let n = 0;
   const flaky = v2Provider(() => { if (n++ === 0) throw new Error('fetch failed'); return { token: TOKEN.id, amount: '20000000', expires_at_ms: '99' }; });
   const out = await buildLiveConfig(liveCfg([{ order_id: 'A1' }]), flaky, () => {}, NO_WAIT);
@@ -146,7 +147,7 @@ test('client-1: a get_order that fails once and then answers keeps the order WIT
 });
 
 // ---------- client-2 ----------
-test('client-2: markComputedViews marks exactly the recomputed views and gives a v2 preview its token', () => {
+test('markComputedViews marks exactly the recomputed views and gives a v2 preview its token', () => {
   const t = {
     type: 'bot-promises/replay/v2', contract_api: 2,
     steps: [
@@ -165,7 +166,7 @@ test('client-2: markComputedViews marks exactly the recomputed views and gives a
   assert.deepEqual(markComputedViews(m), m, 'idempotent');
 });
 
-test('client-2: the committed transcripts say which views were computed, and the replay badge says so', () => {
+test('the committed transcripts say which views were computed, and the replay badge says so', () => {
   for (const f of ['transcript.json', 'transcript-v2.json', 'transcript-v2-near.json']) {
     const t = JSON.parse(fs.readFileSync(path.join('fixtures/replay', f), 'utf8'));
     assert.equal(t.computed_views, true, f);
@@ -180,7 +181,7 @@ test('client-2: the committed transcripts say which views were computed, and the
   assert.equal(app.replayBadgeText({ recorded_at: '2026-11-10T10:00:00Z' }), 'REPLAY of a real testnet run recorded 2026-11-10', 'unmarked transcripts keep the old text');
 });
 
-test('client-2: chatTimePreview echoes the v2 order token (null = NEAR) and stays token-free for v1', () => {
+test('chatTimePreview echoes the v2 order token (null = NEAR) and stays token-free for v1', () => {
   const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: 'ok\nPROMISE|refund|order=A1|bps=2000' } }] })).toString('base64');
   const hash = sha256Hex(Buffer.from(bytes, 'base64'));
   const receipt = { order_id: 'A1', response_hash: hash };
@@ -189,7 +190,7 @@ test('client-2: chatTimePreview echoes the v2 order token (null = NEAR) and stay
   assert.ok(!('token' in chatTimePreview({ order_id: 'A1', amount: '20000000', max_bps: 3000 }, bytes, receipt)));
 });
 
-test('client-2: the offline v2 replay does not count the recorded (long past) expiry against today: no EXPIRED on a recorded BINDING badge', async () => {
+test('the offline v2 replay does not count the recorded (long past) expiry against today: no EXPIRED on a recorded BINDING badge', async () => {
   const replay = makeReplay('fixtures/replay/transcript-v2.json');
   const order = replay.publicConfig.orders[0];
   assert.ok(Number(order.expires_at_ms) < Date.now(), 'the recorded expiry is in the past');
@@ -203,7 +204,7 @@ test('client-2: the offline v2 replay does not count the recorded (long past) ex
       if (call.url === '/api/chat') return jsonResponse(await replay.handlers.handleChat({ order_id: order.order_id }));
       throw new Error(`unexpected ${call.url}`);
     }, async () => {
-      await import('../../web/app.js?audit-client-offline');
+      await import('../../web/app.js?client-offline');
       await settle(els);
       els['chat-input'].value = 'x';
       await els['chat-form'].listeners.submit({ preventDefault() {} });
@@ -216,7 +217,7 @@ test('client-2: the offline v2 replay does not count the recorded (long past) ex
 
 // ---------- client-4 ----------
 const REAL = JSON.parse(fs.readFileSync('fixtures/live/a123.json', 'utf8'));
-test('client-4: a signer that expired AFTER the receipt was registered still verifies that receipt', () => {
+test('a signer that expired AFTER the receipt was registered still verifies that receipt', () => {
   const records = loadAttestations();
   const rec = records.find(r => r.signers.has(REAL.signature.signing_address.toLowerCase()));
   const signer = { kind: 'provider_tee', model_id: REAL.model, attestation_sha256: rec.sha256, expires_at_ms: '1796035518568' };
@@ -232,7 +233,7 @@ test('client-4: a signer that expired AFTER the receipt was registered still ver
   assert.deepEqual(failing(signerRows(signer, REAL, records, afterExpiry)), ['signer not expired']);
 });
 
-test('client-4: `npm run verify` is VERIFIED after the signer expiry when the receipt predates it (stub RPC)', async (t) => {
+test('`npm run verify` is VERIFIED after the signer expiry when the receipt predates it (stub RPC)', async (t) => {
   const records = loadAttestations();
   const rec = records.find(r => r.signers.has(REAL.signature.signing_address.toLowerCase()));
   const server = http.createServer((req, res) => {
@@ -267,14 +268,14 @@ test('client-4: `npm run verify` is VERIFIED after the signer expiry when the re
 });
 
 // ---------- client-5 ----------
-test('client-5: the live-run script falls back to an archival RPC when no --rpc is given', () => {
+test('the live-run script falls back to an archival RPC when no --rpc is given', () => {
   assert.match(ARCHIVAL_LIVE_RUN_RPC, /archival/);
   assert.doesNotMatch(DEFAULT_LIVE_RUN_RPC, /archival/, 'the archival node rate-limits a burst of 81 reads: fallback only');
   const src = fs.readFileSync('app/scripts/verify-live-run.mjs', 'utf8');
   assert.match(src, /ARCHIVAL_LIVE_RUN_RPC/);
 });
 
-test('client-5: when the default RPC stops serving a tx, that tx and the rest are read from the archival fallback', async () => {
+test('when the default RPC stops serving a tx, that tx and the rest are read from the archival fallback', async () => {
   const txs = Array.from({ length: 5 }, (_, i) => ({ tx_hash: `H${i}`, signer: 's', label: `l${i}` }));
   const gone = Object.assign(new Error("Transaction doesn't exist"), { type: 'UNKNOWN_TRANSACTION' });
   const seen = [];
@@ -290,7 +291,7 @@ test('client-5: when the default RPC stops serving a tx, that tx and the rest ar
   assert.equal(res.aborted, false);
 });
 
-test('client-5: a transaction the RPC no longer serves stops the run at once with one clear --rpc message', async () => {
+test('a transaction the RPC no longer serves stops the run at once with one clear --rpc message', async () => {
   const txs = Array.from({ length: 81 }, (_, i) => ({ tx_hash: `H${i}`, signer: 'a.testnet', label: `l${i}` }));
   const lines = [];
   let fetches = 0;
@@ -304,7 +305,7 @@ test('client-5: a transaction the RPC no longer serves stops the run at once wit
   assert.equal(isTxNotServed(new Error('fetch failed')), false);
 });
 
-test('client-5: other errors are per-transaction FAILs and the run continues (no ABORT)', async () => {
+test('other errors are per-transaction FAILs and the run continues (no ABORT)', async () => {
   const txs = [{ tx_hash: 'A', signer: 's', label: 'a' }, { tx_hash: 'B', signer: 's', label: 'b' }];
   const lines = [];
   const res = await replayLiveRun({}, txs, { log: (l) => lines.push(l), fetchRecord: async () => { throw new Error('fetch failed'); }, paceMs: 0 });
@@ -313,7 +314,7 @@ test('client-5: other errors are per-transaction FAILs and the run continues (no
   assert.ok(lines.some(l => /FAIL\s+A: fetch failed/.test(l)) && lines.some(l => /FAIL\s+B: fetch failed/.test(l)));
 });
 
-test('client-5: the script takes the first positional as the file and --rpc as the value (no --rpc: the default, not the file name)', () => {
+test('the script takes the first positional as the file and --rpc as the value (no --rpc: the default, not the file name)', () => {
   assert.deepEqual(positionalArgs(['fixtures/runs/x.json', '--rpc', 'http://r', '--offline'], ['--rpc']), ['fixtures/runs/x.json']);
   assert.deepEqual(positionalArgs(['--rpc', 'http://r', 'file.json'], ['--rpc']), ['file.json']);
   assert.equal(flagValue(['file.json'], '--rpc'), undefined);
@@ -323,7 +324,7 @@ test('client-5: the script takes the first positional as the file and --rpc as t
 });
 
 // ---------- client-6 ----------
-test('client-6: a flag value is never taken as the bundle path; flags may come before the file', () => {
+test('a flag value is never taken as the bundle path; flags may come before the file', () => {
   assert.deepEqual(positionalArgs(['--merchant', 'cbp-shop-sm1110.testnet', 'fixtures/live/a123-v2.json', '--offline'], ['--contract', '--rpc', '--merchant']), ['fixtures/live/a123-v2.json']);
   assert.equal(flagValue(['--merchant=abc', 'f.json'], '--merchant'), 'abc');
   const res = spawnSync(process.execPath, ['app/verify.mjs', '--merchant', 'cbp-shop-sm1110.testnet', 'fixtures/live/a123-v2.json', '--offline'], { encoding: 'utf8' });
@@ -355,7 +356,7 @@ async function stubRpc(t, handler) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
-test('client-6: a missing --merchant is its own row, not "testnet RPC unreachable"', async (t) => {
+test('a missing --merchant is its own row, not "testnet RPC unreachable"', async (t) => {
   const rpc = await stubRpc(t, (m) => ({ value: m === 'get_config' ? { api: 2, allowed_tokens: [] } : null }));
   const r = await runVerify(['fixtures/live/a123-v2.json', '--rpc', rpc, '--contract', 'v2.cbp-sm1110.testnet'], cleanEnv());
   assert.equal(r.status, 1, r.out);
@@ -364,7 +365,7 @@ test('client-6: a missing --merchant is its own row, not "testnet RPC unreachabl
   assert.equal(r.out.trimEnd().split('\n').at(-1), 'NOT VERIFIED');
 });
 
-test('client-6: a contract error in the on-chain block is not blamed on the network', async (t) => {
+test('a contract error in the on-chain block is not blamed on the network', async (t) => {
   const rpc = await stubRpc(t, (m) => (m === 'get_config' ? { error: 'wasm execution failed: MethodNotFound' } : { error: 'wasm execution failed: Smart contract panicked: boom' }));
   const r = await runVerify(['fixtures/live/a123.json', '--rpc', rpc], cleanEnv());
   assert.equal(r.status, 1, r.out);
@@ -373,7 +374,7 @@ test('client-6: a contract error in the on-chain block is not blamed on the netw
 });
 
 // ---------- client-8 ----------
-test('client-8: V2 ASSET=near does not abort on a merchant that already has its bond: it registers the orders', (t) => {
+test('V2 ASSET=near does not abort on a merchant that already has its bond: it registers the orders', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'client8-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const log = path.join(dir, 'calls.log');
@@ -397,7 +398,7 @@ exit 0
   assert.match(calls, /register_order .*A124-77/);
 });
 
-test('client-8: a merchant that is not registered yet still gets storage_deposit + register_merchant before the orders', (t) => {
+test('a merchant that is not registered yet still gets storage_deposit + register_merchant before the orders', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'client8b-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const log = path.join(dir, 'calls.log');
@@ -434,11 +435,11 @@ function chatFetch({ receipts }) {
   };
 }
 
-test('client-9: a lagging node (receipt null, then a dropped call, then the receipt) still ends in BINDING', async () => {
+test('a lagging node (receipt null, then a dropped call, then the receipt) still ends in BINDING', async () => {
   const els = fakePage();
   await withFetch(chatFetch({ receipts: [null, new Error('node unavailable'), { order_id: 'A123-11', token: TOKEN.id }] }), async (calls) => {
     try {
-      (await import('../../web/app.js?audit-client-9a')).BINDING_RETRY.delayMs = 1;
+      (await import('../../web/app.js?client-9a')).BINDING_RETRY.delayMs = 1;
       await settle(els);
       els['chat-input'].value = 'my mug broke';
       await els['chat-form'].listeners.submit({ preventDefault() {} });
@@ -450,12 +451,12 @@ test('client-9: a lagging node (receipt null, then a dropped call, then the rece
   });
 });
 
-test('client-9: when the receipt never shows up the bubble says NOT A PROMISE and offers Re-check, which can recover', async () => {
+test('when the receipt never shows up the bubble says NOT A PROMISE and offers Re-check, which can recover', async () => {
   const els = fakePage();
   const receipts = [null];
   await withFetch(chatFetch({ receipts }), async () => {
     try {
-      const page = await import('../../web/app.js?audit-client-9b');
+      const page = await import('../../web/app.js?client-9b');
       page.BINDING_RETRY.delayMs = 1;
       await settle(els);
       els['chat-input'].value = 'my mug broke';
@@ -475,7 +476,7 @@ test('client-9: when the receipt never shows up the bubble says NOT A PROMISE an
 });
 
 // ---------- client-10 ----------
-test('client-10: attest.mjs refuses to overwrite an existing record (a registered hash must stay matchable)', () => {
+test('attest.mjs refuses to overwrite an existing record (a registered hash must stay matchable)', () => {
   const src = fs.readFileSync('app/scripts/attest.mjs', 'utf8');
   assert.match(src, /writeFileSync\(file, bytes, \{ flag: 'wx' \}\)/);
   assert.match(src, /REFUSING to overwrite/);

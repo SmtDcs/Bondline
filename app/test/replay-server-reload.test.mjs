@@ -1,4 +1,4 @@
-// client-3 (final audit): the replay SERVER used to remember claims for the life of the process, so after one
+// The replay SERVER used to remember claims for the life of the process, so after one
 // claim a page reload could not replay the claim beat. Loading /api/config (what every page load does) now
 // starts a fresh replay session. This drives the real server (imported in-process) over HTTP on localhost.
 import test from 'node:test';

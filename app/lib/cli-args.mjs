@@ -1,4 +1,4 @@
-// Tiny argv helpers shared by the verify scripts (client-6).
+// Tiny argv helpers shared by the verify scripts.
 
 /** Positional arguments: everything that is not a `--flag` and not the value of one of `valueFlags`. */
 export function positionalArgs(args, valueFlags = []) {

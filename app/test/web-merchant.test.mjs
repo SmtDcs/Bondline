@@ -1,6 +1,6 @@
-// T16: claim button on BINDING bubbles + merchant pane (bond meter, register-edited).
-// jsdom is not a dependency (PLAN section 6), so this drives the page's own ES module with a
-// minimal document, exactly like app/test/web-app.test.mjs does for T15.
+// Claim button on BINDING bubbles + merchant pane (bond meter, register-edited).
+// Jsdom is not a dependency, so this drives the page's own ES module with a
+// minimal document, exactly like app/test/web-app.test.mjs does.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -181,7 +181,7 @@ test('a BINDING bubble gets a Claim button that pays, toasts, turns the badge re
 
     assert.equal(bot.statusBadge.className, 'badge binding', 'a paid claim is shown as a success, not an error');
     assert.equal(bot.statusBadge.textContent, 'CLAIMED · paid 0.400 NEAR');
-    assert.equal(bot.claimButton.disabled, false, 'T17: the Claim button stays clickable');
+    assert.equal(bot.claimButton.disabled, false, 'the Claim button stays clickable');
 
     assert.ok(calls.filter(isMerchantCall).length > merchantCallsBefore, 'bond meter refreshed after the claim');
     assert.deepEqual(els['bond-meter'].children.map(c => c.textContent), [

@@ -1,4 +1,4 @@
-// The chain half of `npm run verify:live-run`: re-read every recorded transaction and compare (client-5).
+// The chain half of `npm run verify:live-run`: re-read every recorded transaction and compare.
 import { fetchTxRecord, isTxNotServed } from './live-tx.mjs';
 import { diffRecord } from './live-run-check.mjs';
 

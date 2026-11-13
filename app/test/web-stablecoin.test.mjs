@@ -1,4 +1,4 @@
-// docs/STABLECOIN.md 14: the page's v2 additions (token amounts, expiry, per-asset meter,
+// docs/STABLECOIN.md 12: the page's v2 additions (token amounts, expiry, per-asset meter,
 // unregistered-buyer notice) plus the v1 replay staying byte-identical.
 import test from 'node:test';
 import assert from 'node:assert/strict';

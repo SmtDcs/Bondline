@@ -8,15 +8,15 @@ export const replyFromBundle = (bundle) =>
   JSON.parse(new TextDecoder().decode(b64ToBytes(bundle.response_b64))).choices[0].message.content;
 const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
 const OFFLINE = new URLSearchParams(location.search).has('offline');
-let REPLAY_TRANSCRIPT = null; // T19: recorded run, loaded only when CFG.mode === 'replay'
-const REPLAY_CLAIMED = new Set(); // T19: orders claimed so far in the offline replay (drives the bond meter)
+let REPLAY_TRANSCRIPT = null; // recorded run, loaded only when CFG.mode === 'replay'
+const REPLAY_CLAIMED = new Set(); // orders claimed so far in the offline replay (drives the bond meter)
 let TAMPERED_ROW = null; // the bubble the shopper last clicked Tamper on: the merchant's edit targets it
 let CHAT_IN_FLIGHT = false; // one /api/chat at a time (a double Enter must not buy two live replies)
 
 const BOND_REFRESH_MS = 10_000;
-/** client-9: views retried right after a registered receipt (a lagging RPC node answers null). Tests shrink it. */
+/** Views retried right after a registered receipt (a lagging RPC node answers null). Tests shrink it. */
 export const BINDING_RETRY = { retries: 4, delayMs: 1500, recheckRetries: 2 };
-// T16: the merchant's "register edited reply" attempt rewrites the token in the reply bytes.
+// The merchant's "register edited reply" attempt rewrites the token in the reply bytes.
 const EDIT_FROM = 'bps=2000';
 const EDIT_TO = 'bps=3000';
 
@@ -32,7 +32,7 @@ export function tokenMetaFor(tokenId, tokens = CFG?.tokens) {
 export function formatAsset(raw, tokenId, tokens = CFG?.tokens) {
   if (!tokenId) return `${yoctoToNear(raw ?? 0)} NEAR`;
   const meta = tokenMetaFor(tokenId, tokens);
-  // client-1: a token with no metadata is never shown as NEAR (4 tUSDC would read `0.000 NEAR`): say what it is.
+  // A token with no metadata is never shown as NEAR (4 tUSDC would read `0.000 NEAR`): say what it is.
   if (!meta) return `${String(raw ?? 0)} raw units of ${tokenId} (no token metadata)`;
   return `${formatAmount(String(raw ?? 0), meta.decimals)} ${meta.symbol}`;
 }
@@ -69,7 +69,7 @@ export const yoctoToNear = (y) => (Number(BigInt(y) / 10n ** 21n) / 1000).toFixe
 export async function bindingStatus(orderId, responseB64, recordedViews, { retries = 0, delayMs = BINDING_RETRY.delayMs } = {}) {
   if (OFFLINE && recordedViews) return { receipt: recordedViews.get_receipt, preview: recordedViews.preview_claim };
   const hash = await sha256Hex(b64ToBytes(responseB64));
-  // client-9: right after a successful register_receipt the public load-balanced RPC may answer from a node a
+  // Right after a successful register_receipt the public load-balanced RPC may answer from a node a
   // block behind (get_receipt null) or drop the call. The caller that knows a receipt was just registered asks
   // for a few retries; a null receipt is a real "NOT A PROMISE" only after they are used up.
   let receipt = null;
@@ -86,7 +86,7 @@ export async function bindingStatus(orderId, responseB64, recordedViews, { retri
   return { hash, receipt, preview };
 }
 
-/** client-1: the asset of an order comes from the chain's own answer (preview_claim / claim result / receipt,
+/** The asset of an order comes from the chain's own answer (preview_claim / claim result / receipt,
  *  all v2 views carry `token`, null = NEAR), not from the startup snapshot in /api/config. `fallback` (the
  *  config's token) is used only when the answer has no `token` field at all (v1, or an old recorded view). */
 export function chainToken(answer, fallback = null) {
@@ -119,7 +119,7 @@ export function payoutFailedText(tokenId, tokens = CFG?.tokens) {
 }
 
 export function badgeText({ receipt, preview, tokenId: configTokenId, expiresAtMs, nowMs }) {
-  // client-1: the chain's answer decides the asset; the config's token is only a fallback.
+  // The chain's answer decides the asset; the config's token is only a fallback.
   const tokenId = receipt && preview ? chainToken(preview, chainToken(receipt, configTokenId)) : configTokenId;
   if (!receipt) return { cls: 'error', text: 'NOT A PROMISE (no receipt on chain)' };
   if (!preview.ok) {
@@ -141,26 +141,26 @@ export async function loadConfig(url = '/api/config') {
   return CFG;
 }
 
-/** T19: the orange badge on the replay server; the date is the transcript's recorded_at. */
+/** The orange badge on the replay server; the date is the transcript's recorded_at. */
 export function replayBadgeText(transcript) {
   const date = typeof transcript?.recorded_at === 'string' ? transcript.recorded_at.slice(0, 10) : '';
   const base = date ? `REPLAY of a real testnet run recorded ${date}` : 'REPLAY of a real testnet run';
-  // client-2: the chat-time badges, the Tamper results and the pre-claim meter were recomputed after the run from the
+  // The chat-time badges, the Tamper results and the pre-claim meter were recomputed after the run from the
   // recorded bytes and chain data (the recorder ran after the claims); say so instead of calling them recorded answers.
   return transcript?.computed_views === true ? `${base} · BINDING/Tamper badges and the pre-claim meter recomputed from the recorded bytes` : base;
 }
 
-/** T19: the recorded message for an order (the input is pre-filled with it in replay mode). */
+/** The recorded message for an order (the input is pre-filled with it in replay mode). */
 export function replayMessageFor(transcript, orderId) {
   return (transcript?.steps ?? []).find(step => step.kind === 'chat' && step.order_id === orderId)?.message ?? null;
 }
 
-/** T19: the first chat step records the pre-claim get_merchant; offline replay starts from it. */
+/** The first chat step records the pre-claim get_merchant; offline replay starts from it. */
 export function replayInitialMerchantView(transcript) {
   return (transcript?.steps ?? []).find(step => step.views?.get_merchant)?.views.get_merchant ?? null;
 }
 
-/** T19: the merchant meter after exactly the replayed claims (`claimed` = Set of order ids).
+/** The merchant meter after exactly the replayed claims (`claimed` = Set of order ids).
  *  The first chat step's get_merchant is the pre-claim state, the last one is already after every
  *  recorded claim. A partial state (one claim of two) is the final view rolled back by the claims not
  *  replayed yet: bond and paid_out by the recorded payout, reserved by the order's recorded liability
@@ -184,18 +184,18 @@ export function replayMeterView(transcript, claimed) {
   return { ...final, bond: bond.toString(), reserved: reserved.toString(), paid_out: paid.toString(), computed: true };
 }
 
-/** T19: the last recorded get_merchant is the final post-run view, shown after a claim. */
+/** The last recorded get_merchant is the final post-run view, shown after a claim. */
 export function replayMerchantView(transcript) {
   return [...(transcript?.steps ?? [])].reverse().find(step => step.views?.get_merchant)?.views.get_merchant ?? null;
 }
 
-/** T19: the recorded Tamper outcome for exactly these edited bytes (the recorder stores the hash). */
+/** The recorded Tamper outcome for exactly these edited bytes (the recorder stores the hash). */
 export function recordedTamperViews(views, editedHash) {
   const tamper = views?.tamper;
   return tamper && tamper.response_hash === editedHash ? tamper : null;
 }
 
-/** T19: the transcript is public demo data, served by app/server.mjs from /fixtures. */
+/** The transcript is public demo data, served by app/server.mjs from /fixtures. */
 export async function loadReplayTranscript(url = CFG?.transcript_url ?? '/fixtures/replay/transcript.json') {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`transcript HTTP ${res.status}`);
@@ -205,7 +205,7 @@ export async function loadReplayTranscript(url = CFG?.transcript_url ?? '/fixtur
 
 const NAIVE_LABEL = 'badly configured bot';
 
-/** PLAN R4: the naive (jailbroken) demo order must be labelled in the UI.
+/** The naive (jailbroken) demo order must be labelled in the UI.
  *  v2 orders also show their currency and total (`· 20 tUSDC`). */
 export function orderLabel(order, tokens = CFG?.tokens) {
   const base = order?.label ? `${order.order_id} · ${order.label}` : String(order?.order_id ?? '');
@@ -228,7 +228,7 @@ export function splitTokenLine(reply) {
   return { text: lines.filter((_, j) => j !== i).join('\n').trimEnd(), token: lines[i].trim() };
 }
 
-/** T17 tamper beat: rewrite the token's bps to make the exact response bytes different.
+/** Rewrite the token's bps to make the exact response bytes different.
  *  First `bps=2000` becomes `bps=3000`; with no `bps=2000`, the first digit after `bps=`
  *  becomes 3 (e.g. `bps=10000` -> `bps=30000`). Returns null when the reply has no bps=. */
 export function tamperText(reply) {
@@ -240,13 +240,13 @@ export function tamperText(reply) {
   return text.slice(0, digit) + '3' + text.slice(digit + 1);
 }
 
-/** T17: edit the decoded bundle.response_b64 and re-encode it (exact edited bytes for bindingStatus). */
+/** Edit the decoded bundle.response_b64 and re-encode it (exact edited bytes for bindingStatus). */
 export function tamperResponseB64(responseB64) {
   const edited = tamperText(new TextDecoder().decode(b64ToBytes(responseB64)));
   return edited === null ? null : bytesToB64(new TextEncoder().encode(edited));
 }
 
-/** Merchant pane meter (T16): bond, reserved, free = bond - reserved, paid_out, 3 decimals. */
+/** Merchant pane meter: bond, reserved, free = bond - reserved, paid_out, 3 decimals. */
 export function bondMeterFields(merchant) {
   const bond = BigInt(merchant?.bond ?? 0);
   const reserved = BigInt(merchant?.reserved ?? 0);
@@ -300,7 +300,7 @@ export function renderBondMeter(el, merchant, extras = {}) {
 
 export async function refreshBondMeter() {
   if (!CFG) return null;
-  // T19: ?offline=1 replay must touch nothing but localhost: use the recorded merchant views.
+  // ?offline=1 replay must touch nothing but localhost: use the recorded merchant views.
   // Pre-claim meter, rolled forward claim by claim (replayMeterView).
   if (OFFLINE && CFG.mode === 'replay') {
     const merchant = replayMeterView(REPLAY_TRANSCRIPT, REPLAY_CLAIMED);
@@ -319,7 +319,7 @@ export async function refreshBondMeter() {
   return merchant;
 }
 
-/** Toast text for a claim: `paid 0.400 NEAR` (T16 acceptance). */
+/** Toast text for a claim: `paid 0.400 NEAR`. */
 export function claimToastText(payout, tokenId = null, tokens = CFG?.tokens) {
   return `paid ${formatAsset(payout, tokenId, tokens)}`;
 }
@@ -426,7 +426,7 @@ export function registerTargetRow() {
   return [...rows].reverse().find(r => safeReply(r.bundle).includes(EDIT_FROM)) ?? rows.at(-1) ?? null;
 }
 
-/** T16: the merchant acts on one chosen bubble (registerTargetRow), once it has a bundle. */
+/** The merchant acts on one chosen bubble (registerTargetRow), once it has a bundle. */
 function updateRegisterEdited() {
   const btn = $('btn-register-edited');
   if (!btn) return;
@@ -470,7 +470,7 @@ async function claim(row, btn) {
       showToast(text, data.explorer ?? null, 'toast error', { label: 'failed tx', detail: data.detail ?? null });
       return;
     }
-    // client-1: the claim result names the token that actually moved (null = NEAR); the page's earlier guess is a fallback.
+    // The claim result names the token that actually moved (null = NEAR); the page's earlier guess is a fallback.
     const paidToken = chainToken(data.result, row.tokenId);
     showToast(claimToastText(data.result.payout, paidToken), data.explorer);
     // A paid claim is a success: say so in green. (Re-reading preview_claim here returned ERR_ALREADY_CLAIMED,
@@ -481,7 +481,7 @@ async function claim(row, btn) {
     failed = true;
     showToast(err.message, null, 'toast error');
   } finally {
-    // T17: the button stays clickable after a claim; a second click shows the 400 ERR_ALREADY_CLAIMED.
+    // The button stays clickable after a claim; a second click shows the 400 ERR_ALREADY_CLAIMED.
     btn.disabled = false;
     if (!failed && OFFLINE && CFG?.mode === 'replay') REPLAY_CLAIMED.add(row.orderId);
     await refreshBondMeter().catch(() => {});
@@ -496,7 +496,7 @@ function addTamper(row) {
   row.append(btn);
 }
 
-/** T17: tamper the reply bytes, ask the contract about the edited bytes, show the badge + hashes. */
+/** Tamper the reply bytes, ask the contract about the edited bytes, show the badge + hashes. */
 async function tamper(row, btn) {
   const editedB64 = tamperResponseB64(row.bundle.response_b64);
   if (editedB64 === null) {
@@ -509,7 +509,7 @@ async function tamper(row, btn) {
   try {
     const originalHash = row.bundle.response_hash ?? await sha256Hex(b64ToBytes(row.bundle.response_b64));
     const editedHash = await sha256Hex(b64ToBytes(editedB64));
-    // T19: offline replay must not touch testnet; use the Tamper outcome the transcript recorded
+    // Offline replay must not touch testnet; use the Tamper outcome the transcript recorded
     // for exactly these edited bytes (hash-checked, so a different edit is not silently "failed").
     let offlineEdited;
     if (OFFLINE && CFG?.mode === 'replay') {
@@ -579,7 +579,7 @@ async function checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries 
       addClaim(bot.row);
       // NEP-145: say it next to BINDING when the buyer has no storage on the token. Never block the claim:
       // the contract cannot know, and a failed payout is safe (the order stays open for a retry).
-      // ?offline=1 must touch nothing but localhost, so it never asks the token contract (client-11).
+      // ?offline=1 must touch nothing but localhost, so it never asks the token contract.
       if (tokenId && isV2() && !(OFFLINE && CFG.mode === 'replay')) {
         const balance = await rpcView('storage_balance_of', { account_id: CFG.buyerId }, tokenId).catch(() => undefined);
         if (balance === null) {
@@ -634,7 +634,7 @@ async function onSubmit(event) {
     bot.row.orderId = orderId;
     bot.row.tokenId = tokenId;
     bot.row.expiresAtMs = expiresAtMs;
-    bot.row.views = data.views; // T19 replay: the recorded views drive ?offline=1
+    bot.row.views = data.views; // the recorded views drive ?offline=1
     bot.bubble.bundle = data.bundle;
     // Show the text of the verified bytes (the ones BINDING hashes and claim uses), never the relayer's
     // separate data.reply string.
@@ -643,10 +643,10 @@ async function onSubmit(event) {
     renderReply(bot.bubble, shown);
     if (data.explorer) bot.links.append(link('receipt tx', data.explorer));
     if (data.bundle?.simulated) bot.meta.append(element('span', 'badge simulated', 'SIMULATED'));
-    // PLAN R4: say out loud that this order's bot is the badly configured one.
+    // Say out loud that this order's bot is the badly configured one.
     if (isNaiveOrder(CFG.orders, orderId)) bot.meta.append(element('span', 'badge naive', NAIVE_LABEL));
     updateRegisterEdited();
-    // T17: every bot bubble can be tampered with, whatever the BINDING check said.
+    // Every bot bubble can be tampered with, whatever the BINDING check said.
     addTamper(bot.row);
     // The relayer returned a register_tx, so the receipt exists on chain: retry the views while a lagging node says null.
     await checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries: data.register_tx && !OFFLINE ? BINDING_RETRY.retries : 0 });
@@ -671,7 +671,7 @@ async function init() {
     badge.className = 'badge replay';
     badge.textContent = replayBadgeText(REPLAY_TRANSCRIPT);
     // Without ?offline=1 the page checks BINDING against testnet, where the recorded orders are already
-    // claimed: say why the badges are red instead of leaving a judge to guess.
+    // claimed: say why the badges are red instead of leaving the user to guess.
     if (!OFFLINE) $('mode-badge').after?.(element('span', 'badge warning', 'add ?offline=1 to see the recorded claimable badges (these orders are already claimed on testnet)'));
   } else {
     $('mode-badge').textContent = cfg.mode;
@@ -690,7 +690,7 @@ async function init() {
   $('chat-form').addEventListener('submit', onSubmit);
   $('btn-register-edited').addEventListener('click', onRegisterEdited);
   if (cfg.mode === 'replay') {
-    // T19: the recorded run's message is pre-filled for the selected order (handleChat ignores text).
+    // The recorded run's message is pre-filled for the selected order (handleChat ignores text).
     const prefill = () => {
       const message = replayMessageFor(REPLAY_TRANSCRIPT, select.value);
       if (message) $('chat-input').value = message;

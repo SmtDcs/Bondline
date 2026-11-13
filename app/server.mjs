@@ -17,7 +17,7 @@ app.use('/fixtures', express.static('fixtures')); // replay files are public dem
 
 let handlers, cfgPublic, resetSession = () => {};
 if (MODE === 'replay') {
-  const { makeReplay, DEFAULT_TRANSCRIPT } = await import('./lib/replay.mjs'); // task T19
+  const { makeReplay, DEFAULT_TRANSCRIPT } = await import('./lib/replay.mjs');
   // REPLAY_FILE=fixtures/replay/transcript-v2.json replays the stablecoin recording (file must be under fixtures/replay/).
   const r = makeReplay(process.env.REPLAY_FILE || DEFAULT_TRANSCRIPT);
   handlers = r.handlers; cfgPublic = r.publicConfig; resetSession = r.reset;

@@ -5,8 +5,7 @@ import { explorerTx } from './near.mjs';
 
 /**
  * Wrap an async route handler: a thrown Error becomes {error, detail, tx, explorer}.
- * INTERFACES 11: a failed on-chain call answered with `tx` must also carry the explorer link
- * (T17 tamper beat, T18 replay transcript).
+ * INTERFACES 11: a failed on-chain call answered with `tx` must also carry the explorer link.
  */
 export const wrap = (fn, log = console.error) => async (req, res) => {
   try { res.json(await fn(req.body ?? {})); }

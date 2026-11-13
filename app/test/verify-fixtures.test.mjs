@@ -1,4 +1,4 @@
-// T20 review: run the real verify-fixtures script against a throwaway fixture tree.
+// Run the real verify-fixtures script against a throwaway fixture tree.
 // A normal bad bundle and a "tampered" file that verifies must both exit 1; a good set exits 0.
 import test from 'node:test';
 import assert from 'node:assert/strict';

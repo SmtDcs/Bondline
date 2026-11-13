@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// DAY-0 SPIKE S1 (needs NEARAI_API_KEY with a few cents of credit; makes 1-3 chat calls, NO blockchain tx).
-// Usage: NEARAI_API_KEY=... node app/scripts/spike-s1-live-signature.mjs [model] [out.json]
+// Live signature check (needs NEARAI_API_KEY with a few cents of credit; makes 1-3 chat calls, NO blockchain tx).
+// Usage: NEARAI_API_KEY=... node app/scripts/live-signature.mjs [model] [out.json]
 // Proves or kills: (a) non-streaming chat + x-no-aliasing gives signature_kind=provider_tee,
 // (b) signing_algo=ed25519 is available for it, (c) text == "<model>:<sha256 req>:<sha256 resp>",
 // (d) the ed25519 signature verifies with node:crypto, (e) the signer equals a VERIFIED model attestation signer,
@@ -52,4 +52,4 @@ console.log(`${signerAttested ? 'PASS' : 'FAIL'}  signer matches a verified mode
 const content = chat.json.choices?.[0]?.message?.content ?? '';
 const tokens = (content.match(/PROMISE\|/g) ?? []).length;
 console.log(`${tokens === 1 ? 'PASS' : 'WARN'}  exactly one PROMISE token in content (found ${tokens})`);
-console.log(ok && signerAttested && sig.signature_kind === 'provider_tee' ? 'S1 GO (provider_tee ed25519)' : 'S1 see fallbacks in PLAN.md section 7');
+console.log(ok && signerAttested && sig.signature_kind === 'provider_tee' ? 'S1 GO (provider_tee ed25519)' : 'S1 NO-GO: no provider_tee ed25519 signature');

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Usage: node app/scripts/mark-computed-views.mjs fixtures/replay/transcript.json [...]
-// client-2: marks the recomputed views of an already recorded replay transcript (see markComputedViews in
+// Marks the recomputed views of an already recorded replay transcript (see markComputedViews in
 // app/lib/transcript.mjs): chat-time preview_claim, tamper.preview_claim and the first step's pre-claim get_merchant
 // get `computed: true`, a v2 preview gets its `token`, and the transcript gets `computed_views: true`. Idempotent.
 // Nothing else in the file changes and no network call is made.

@@ -1,4 +1,4 @@
-// T19: replay-mode handlers. Everything is driven by the committed transcript and bundles:
+// Replay-mode handlers. Everything is driven by the committed transcript and bundles:
 // no .env, no NEAR AI call, no network, no transactions.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -93,7 +93,7 @@ test('handleClaim returns the recorded claim once, then ERR_ALREADY_CLAIMED', as
   );
 });
 
-test('client-3: reset() (a fresh page load) lets the claim beat play again', async () => {
+test('reset() (a fresh page load) lets the claim beat play again', async () => {
   const r = make();
   const first = await r.handlers.handleClaim({ order_id: claimStep.order_id, response_b64: claimBytes });
   await assert.rejects(() => r.handlers.handleClaim({ order_id: claimStep.order_id, response_b64: claimBytes }), (e) => e.message === 'ERR_ALREADY_CLAIMED');
@@ -109,7 +109,7 @@ test('handleRegisterEdited loses with ERR_BAD_SIGNATURE and the recorded tx for 
   );
 });
 
-test('audit: replay never fabricates an edited-reply outcome or borrows another order\'s tx', async () => {
+test('replay never fabricates an edited-reply outcome or borrows another order\'s tx', async () => {
   const { handlers } = make();
   const notRecorded = (e) => e.message === 'ERR_NOT_RECORDED' && e.status === 404 && e.txHash === undefined;
   const other = chatSteps.find(c => c.order_id !== editedStep.order_id);
@@ -125,7 +125,7 @@ test('audit: replay never fabricates an edited-reply outcome or borrows another 
   await assert.rejects(() => handlers.handleRegisterEdited({ ...editedRequest(), edit: undefined }), notRecorded);
 });
 
-test('audit: replay claim for other bytes is ERR_NO_RECEIPT_FOR_BYTES and consumes nothing', async () => {
+test('replay claim for other bytes is ERR_NO_RECEIPT_FOR_BYTES and consumes nothing', async () => {
   const { handlers } = make();
   await assert.rejects(() => handlers.handleClaim({ order_id: claimStep.order_id, response_b64: 'AAAA' }), (e) => e.message === 'ERR_NO_RECEIPT_FOR_BYTES' && e.status === 400);
   await assert.rejects(() => handlers.handleClaim({ order_id: claimStep.order_id }), (e) => e.message === 'ERR_NO_RECEIPT_FOR_BYTES');

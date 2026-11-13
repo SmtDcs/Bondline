@@ -1,4 +1,4 @@
-// tests-7: the part of handleChat that runs AFTER the NEAR AI call, offline:
+// The part of handleChat that runs AFTER the NEAR AI call, offline:
 //   signature -> local check -> register_receipt (FINAL) -> only then the reply.
 // chatExact, fetchSignature and callFinal are injected with the committed fixtures/simulated/honest.json bytes.
 import test from 'node:test';

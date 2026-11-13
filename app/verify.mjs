@@ -39,7 +39,7 @@ if (!args.includes('--offline')) {
     const merchant = flag('--merchant') ?? process.env.MERCHANT_ID ?? null;
     const api = await detectApi(provider, contractId);
     if (api === 2 && !merchant) {
-      // Its own row (client-6): this is a missing input, not a network problem.
+      // Its own row: this is a missing input, not a network problem.
       rows.push({ check: 'merchant given (a v2 contract keys receipts by merchant)', ok: false, detail: 'pass --merchant <id> or set MERCHANT_ID; the on-chain checks were not run' });
       missingInput = true;
     }
@@ -47,7 +47,7 @@ if (!args.includes('--offline')) {
       const config = api === 2 ? await view(provider, contractId, 'get_config', {}) : null;
       const signer = await view(provider, contractId, 'get_signer', { public_key_hex: bundle.signature.signing_address });
       const receipt = await view(provider, contractId, 'get_receipt', receiptArgs(api, merchant, bundle.response_hash));
-      // The signer is judged at the receipt's registration time (client-4), not by today's clock.
+      // The signer is judged at the receipt's registration time, not by today's clock.
       // Simulated keys have no attestation record: only the registration rows apply.
       rows.push(...(simulated ? signerRows(signer, bundle, records, Date.now(), receipt).slice(0, 4) : signerRows(signer, bundle, records, Date.now(), receipt)));
       if (api === 2 && receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
@@ -74,7 +74,7 @@ if (!args.includes('--offline')) {
   } catch (e) {
     const cause = e?.cause?.code ?? e?.cause?.message;
     const detail = `${e?.message ?? e}${cause ? ` (${cause})` : ''}`.split('\n')[0];
-    // `RPC unreachable` only for network-shaped errors (client-6); any other error in the on-chain block is named as such.
+    // `RPC unreachable` only for network-shaped errors; any other error in the on-chain block is named as such.
     const network = !!cause || /fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|EAI_AGAIN|socket|network|timed? ?out/i.test(String(e?.message ?? e));
     rows.push(network
       ? { check: 'testnet RPC unreachable', ok: false, detail: `${detail} - rerun with --offline for the off-chain checks only` }

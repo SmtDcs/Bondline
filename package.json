@@ -2,16 +2,21 @@
   "name": "claimable-bot-promises",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.22.2" },
+  "engines": {
+    "node": ">=22.22.2"
+  },
   "scripts": {
     "build:contract": "cd contract && cargo near build non-reproducible-wasm --no-abi && mkdir -p res && cp target/near/bot_promises.wasm res/",
     "test:contract": "cd contract && cargo test",
     "build:contract:v2": "cd contract-v2 && cargo near build non-reproducible-wasm --no-abi && mkdir -p res && cp target/near/bot_promises_v2.wasm res/",
     "test:contract:v2": "cd contract-v2 && cargo test",
+    "test:token": "cd token && cargo test",
     "test:js": "node --test \"app/test/*.test.mjs\"",
     "test": "npm run test:js && npm run verify:fixtures",
     "attest": "node app/scripts/attest.mjs",
-    "spike:s1": "node --env-file=.env app/scripts/spike-s1-live-signature.mjs",
+    "signature:live": "node --env-file=.env app/scripts/live-signature.mjs",
+    "check:prompt": "node --env-file=.env app/scripts/check-prompt.mjs",
+    "check:keys": "node --env-file=.env app/scripts/check-access-keys.mjs",
     "verify": "node app/verify.mjs",
     "verify:fixtures": "node app/scripts/verify-fixtures.mjs",
     "verify:live-run": "node app/scripts/verify-live-run.mjs",

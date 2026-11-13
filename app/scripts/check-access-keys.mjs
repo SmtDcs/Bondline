@@ -1,5 +1,5 @@
-// DAY-0 SPIKE S4: function-call access keys do what the demo needs (testnet, no funds move).
-//   node --env-file=.env app/scripts/spike-s4.mjs
+// Check: function-call access keys do what the demo needs (testnet, no funds move).
+//   node --env-file=.env app/scripts/check-access-keys.mjs
 // Proves with the real keys in .env:
 //   relayer key (MERCHANT_ID, method_names ["register_receipt"]) CAN call register_receipt and CANNOT
 //   call withdraw_bond; buyer key (BUYER_ID, method_names ["claim"]) CAN call claim and CANNOT call
@@ -61,5 +61,5 @@ for (const [label, want, account, method, args] of cases) {
   if (!ok) console.log(`      expected ${want}, got ${r.kind}: ${r.message.slice(0, 200)}`);
 }
 
-console.log(failed === 0 ? 'S4 OK (function-call keys scoped as designed)' : `S4 FAILED (${failed} of ${cases.length}) — see docs/BLOCKERS.md`);
+console.log(failed === 0 ? 'S4 OK (function-call keys scoped as designed)' : `S4 FAILED (${failed} of ${cases.length})`);
 process.exit(failed === 0 ? 0 : 1);

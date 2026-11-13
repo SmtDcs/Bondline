@@ -1,4 +1,4 @@
-// Tests for the browser module in web/app.js. jsdom is not a dependency (PLAN section 6 forbids new
+// Tests for the browser module in web/app.js. jsdom is not a dependency (no new
 // deps), so this drives the pure ES module: the frozen BINDING functions and the reply splitter.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +37,7 @@ async function withFetch(handler, fn) {
   }
 }
 
-test('the page module exports rpcView (the T15 DevTools acceptance)', () => {
+test('the page module exports rpcView (usable from DevTools)', () => {
   assert.equal(typeof app.rpcView, 'function');
   assert.equal(typeof app.sha256Hex, 'function');
   assert.equal(typeof app.bindingStatus, 'function');
@@ -271,7 +271,7 @@ test('an API error puts the error string in a red badge', async () => {
     assert.equal(bubble.textContent, '');
     assert.equal(meta.children[0].className, 'badge error');
     assert.equal(meta.children[0].textContent, 'ERR_ALREADY_CLAIMED');
-    // init reads get_merchant for the bond meter (T16); a failed chat must not run bindingStatus.
+    // Init reads get_merchant for the bond meter; a failed chat must not run bindingStatus.
     const views = calls.filter(c => c.url === CONFIG.rpcUrl && JSON.parse(c.opts.body).params.method_name !== 'get_merchant');
     assert.equal(views.length, 0, 'no RPC view after a failed chat');
   } finally {

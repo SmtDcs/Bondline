@@ -1,4 +1,4 @@
-// Replay-mode handlers (T19). Everything comes from the recorded transcript and the committed
+// Replay-mode handlers. Everything comes from the recorded transcript and the committed
 // bundles: no NEAR AI call, no .env, no keys, no transactions. INTERFACES.md sections 11 and 15.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,7 +16,7 @@ export function replyFromBundle(bundle) {
   return json?.choices?.[0]?.message?.content ?? '';
 }
 
-/** TRUE when the recorded system prompt is the naive ("badly configured") policy (CR-3). */
+/** TRUE when the recorded system prompt is the naive ("badly configured") policy. */
 function naiveBundle(bundle) {
   try {
     const request = JSON.parse(Buffer.from(bundle.request_b64, 'base64').toString('utf8'));

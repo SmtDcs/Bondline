@@ -20,7 +20,7 @@ const contractId = process.env.CONTRACT_ID ?? '<CONTRACT_ID>';
 
 const client = new AttestationClient({ baseUrl: 'https://cloud-api.near.ai/v1' });
 const fetched = await client.fetchModelAttestations({ model, signingAlgo: algo });
-if (!fetched.attestations.length) { console.error('NO MODEL ATTESTATIONS returned: stop, see PLAN.md risk R2'); process.exit(1); }
+if (!fetched.attestations.length) { console.error('NO MODEL ATTESTATIONS returned: stop (the model may not be served from a TEE right now)'); process.exit(1); }
 const verified = [];
 for (const a of fetched.attestations) {
   const v = await verifyModelAttestation({ attestation: a, clientBinding: fetched.clientBinding }); // throws on any failed check
@@ -35,7 +35,7 @@ const bytes = Buffer.from(JSON.stringify(record, null, 2) + '\n', 'utf8');
 const sha = crypto.createHash('sha256').update(bytes).digest('hex');
 fs.mkdirSync(outDir, { recursive: true });
 const file = path.join(outDir, `${model.replaceAll('/', '_')}-${algo}-${fetchedAt.slice(0, 10)}.json`);
-// client-10: never replace a record. Its sha256 may already be registered on chain (add_signer), and then no file in the
+// Never replace a record. Its sha256 may already be registered on chain (add_signer), and then no file in the
 // repo would match attestation_sha256 any more. The `wx` flag fails when the file exists.
 try {
   fs.writeFileSync(file, bytes, { flag: 'wx' });

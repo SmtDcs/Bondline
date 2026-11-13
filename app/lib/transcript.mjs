@@ -1,4 +1,4 @@
-// T18: helpers for app/scripts/record-transcript.mjs, kept out of the CLI script so node tests
+// Helpers for app/scripts/record-transcript.mjs, kept out of the CLI script so node tests
 // can exercise the recording rules without a live RPC.
 //
 // `chatTimePreview` rebuilds the ClaimPreview the contract's evaluate() would have returned while
@@ -82,7 +82,7 @@ export function merchantBeforeClaims(finalMerchant, claims) {
   return { ...(finalMerchant.token !== undefined ? { token: finalMerchant.token } : {}), bond: bond.toString(), reserved: reserved.toString(), paid_out: paidOut.toString() };
 }
 
-/** client-2: mark one view the contract did not return live (recomputed after the run) with `computed: true`.
+/** Mark one view the contract did not return live (recomputed after the run) with `computed: true`.
  *  A v2 preview also gets the `token` field the contract's ClaimPreview carries (null = NEAR). */
 export function markComputedView(view, order, { v2 = false } = {}) {
   if (!view) return view;
@@ -92,7 +92,7 @@ export function markComputedView(view, order, { v2 = false } = {}) {
 }
 
 /**
- * client-2: the recorder runs after the claims, so the chat-time `preview_claim`, each `tamper.preview_claim` and the
+ * The recorder runs after the claims, so the chat-time `preview_claim`, each `tamper.preview_claim` and the
  * first chat step's pre-claim `get_merchant` were never returned by the contract: they are recomputed (chatTimePreview,
  * merchantBeforeClaims). This marks exactly those views `computed: true` and sets the top-level `computed_views: true`
  * so the replay page and the README can say so. Used on transcripts recorded before the marker existed; the recorder

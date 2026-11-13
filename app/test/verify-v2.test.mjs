@@ -41,7 +41,7 @@ async function stubV2(t, { marketRegistered = true, answers = {} } = {}) {
         storage_balance_of: marketRegistered ? { total: '1250000000000000000000', available: '1250000000000000000000' } : null,
         preview_claim: { ok: true, token_bps: 2000, paid_bps: 2000, payout: '4000000', token: TOKEN },
       }[params.method_name];
-      // tests-8: a per-test answer replaces the happy-path one (null is a valid answer: "no such receipt")
+      // A per-test answer replaces the happy-path one (null is a valid answer: "no such receipt")
       const value = Object.hasOwn(answers, params.method_name) ? answers[params.method_name] : happy;
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { result: [...Buffer.from(JSON.stringify(value))], logs: [], block_height: 1, block_hash: '11111111111111111111111111111111' } }));
@@ -94,7 +94,7 @@ test('a market that is not registered on the token is NOT VERIFIED', async (t) =
   assert.equal(lastLine(r.out), 'NOT VERIFIED');
 });
 
-// ---- tests-8: the tool must be able to say NOT VERIFIED for the on-chain rows ----
+// ---- the tool must be able to say NOT VERIFIED for the on-chain rows ----
 
 const verifyWith = async (t, answers) => {
   const rpc = await stubV2(t, { answers });

@@ -36,7 +36,7 @@ export async function buildLiveConfig(cfg, provider, log = console.error, retry 
     }
     const kept = [];
     for (const order of cfg.orders) {
-      // client-1: an order whose chain view failed (after retries) or does not exist yet is DROPPED, never kept
+      // An order whose chain view failed (after retries) or does not exist yet is DROPPED, never kept
       // token-less: the page would then show its tUSDC amount as NEAR. Restart the server after registering it.
       let chain;
       try {

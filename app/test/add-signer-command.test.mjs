@@ -1,4 +1,4 @@
-// Final review F1: the add_signer command `npm run attest` prints attaches exactly 1 yoctoNEAR by default.
+// The add_signer command `npm run attest` prints attaches exactly 1 yoctoNEAR by default.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { addSignerCommand, DEFAULT_ADD_SIGNER_DEPOSIT } from '../lib/add-signer-command.mjs';

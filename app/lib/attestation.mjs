@@ -54,7 +54,7 @@ export function attestedRow(bundle, records) {
  * On-chain signer rows (get_signer result) for a real bundle: provider_tee, model matches, signer validity,
  * and attestation_sha256 is the sha256 of a record that lists this signing_address.
  *
- * Validity (client-4): a receipt is judged by whether its signer was valid WHEN IT WAS REGISTERED
+ * Validity: a receipt is judged by whether its signer was valid WHEN IT WAS REGISTERED
  * (`receipt.registered_at_ms`, on chain), not by today's clock: receipts already on chain stay valid after the signer
  * expires (only new register_receipt calls fail). Without a receipt the signer must be unexpired at `nowMs`
  * (row name `signer not expired`). The signer's current expiry is also printed as an informational row.

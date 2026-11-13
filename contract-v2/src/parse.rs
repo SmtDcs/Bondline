@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(extract_content(b"not json"), Err("ERR_RESPONSE_JSON"));
     }
 
-    /// The same table app/test/promise.test.mjs runs against the JS mirror (tests-9): one file, two parsers.
+    /// The same table app/test/promise.test.mjs runs against the JS mirror: one file, two parsers.
     #[test]
     fn shared_parser_vectors() {
         use near_sdk::base64::{engine::general_purpose::STANDARD, Engine};

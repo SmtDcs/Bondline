@@ -25,7 +25,7 @@ test('content only, reasoning ignored', () => {
   assert.equal(extractContent(new TextEncoder().encode('not json')).error, 'ERR_RESPONSE_JSON');
 });
 
-// tests-9: the SAME vectors the Rust parser runs (contract-v2/src/parse.rs, shared_parser_vectors).
+// The SAME vectors the Rust parser runs (contract-v2/src/parse.rs, shared_parser_vectors).
 import fs from 'node:fs';
 const VECTORS = JSON.parse(fs.readFileSync(new URL('../../contract-v2/tests/parser_vectors.json', import.meta.url), 'utf8'));
 

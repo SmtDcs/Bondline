@@ -6877,7 +6877,7 @@
     },
     {
       "step": "L6r",
-      "text": "My first L6r expectation was wrong and the script recorded it as a FAIL: I expected 249 bytes x 10^19 yocto (246 + 3 headroom) for order R611-21, but the shop was charged 253 bytes (2530000000000000000000 yocto). Cause: R611-21 has a 7-character id, L11's 246 bytes were for 5-character ids, and the id is stored twice (storage key and record), so 2 extra characters add 4 bytes (246 + 4 + 3 = 253). The contract was right, the expectation was mine. The check below replaced the failed one with the corrected expectation (the observed value is unchanged), and L6s measured the 249-byte case with a 5-character id (T6-21). The transaction itself (register_order R611-21) is recorded as it happened.",
+      "text": "The first L6r expectation was wrong and the script recorded it as a FAIL: it expected 249 bytes x 10^19 yocto (246 + 3 headroom) for order R611-21, but the shop was charged 253 bytes (2530000000000000000000 yocto). Cause: R611-21 has a 7-character id, L11's 246 bytes were for 5-character ids, and the id is stored twice (storage key and record), so 2 extra characters add 4 bytes (246 + 4 + 3 = 253). The contract was right, the expectation was mine. The check below replaced the failed one with the corrected expectation (the observed value is unchanged), and L6s measured the 249-byte case with a 5-character id (T6-21). The transaction itself (register_order R611-21) is recorded as it happened.",
       "at": "2026-11-11T00:00:00.000Z",
       "round": "2026-11-11-recheck"
     }
@@ -7108,9 +7108,7 @@
       "round": "2026-11-11-recheck",
       "started_at": "2026-11-11T09:54:36.345Z",
       "wasm_sha256": "8f4abd257e5dcb3809dfde681dca78a1eae95aacb4d7b399c68adb8a3a2656b8",
-      "redeploy_tx": "FRTpSjjFbJ13JWeG7ASC17e3zBeHVagjSFL92JqMp63M",
-      "run_by": "Claude Sonnet 5.5",
-      "redeployed_by": "Claude Opus 5.5 (operator)"
+      "redeploy_tx": "FRTpSjjFbJ13JWeG7ASC17e3zBeHVagjSFL92JqMp63M"
     }
   ],
   "l6r_status_growth": {

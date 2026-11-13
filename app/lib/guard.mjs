@@ -1,5 +1,5 @@
-// Request guard for the local demo server (audit relayer-web-secrets-3). The server signs real
-// testnet transactions with function-call keys and spends NEAR AI credit, so a web page the operator
+// Request guard for the local demo server . The server signs real
+// testnet transactions with function-call keys and spends NEAR AI credit, so a web page the user
 // happens to have open must not be able to drive it:
 //  - Host must be the loopback name we listen on (stops DNS rebinding),
 //  - every POST must come from the dashboard itself (Origin = this server) and be application/json

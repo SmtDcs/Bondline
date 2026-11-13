@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Usage: NODE_USE_ENV_PROXY=1 node app/scripts/live-v2.mjs <step> [<step> ...]
 // Steps (docs/STABLECOIN.md section 12): L1 L2pre L2post L3 L4 L5 L6 L8 L7 L9 L9b L10 L11 L12 L13pre L13 gas
-// Re-check on a redeployed build (2026-11-11, audit fixes): LIVE_RUN_ROUND=2026-11-11-recheck REDEPLOY_TX=<tx> NODE_USE_ENV_PROXY=1 node app/scripts/live-v2.mjs L1r L6r
+// Re-check on a redeployed build: LIVE_RUN_ROUND=2026-11-11-recheck REDEPLOY_TX=<tx> NODE_USE_ENV_PROXY=1 node app/scripts/live-v2.mjs L1r L6r
 //   L1r = deployed code hash, canonical signer keys, 1-yocto checks; L6r = fresh tUSDC order: storage charge incl. the status headroom,
 //   tampered claim, edited receipt, honest claim, double claim. Every tx and check of the round is tagged with `round` and the round is
 //   listed in `rechecks` (wasm sha256 + redeploy tx), so the first run's records stay as they were.
@@ -49,7 +49,7 @@ if (ROUND) {
   book.round = ROUND;
   book.data.rechecks ??= [];
   if (!book.data.rechecks.some(r => r.round === ROUND)) {
-    book.data.rechecks.push({ round: ROUND, started_at: new Date().toISOString(), wasm_sha256: RECHECK_WASM_SHA256, redeploy_tx: redeployTx, run_by: 'Claude Sonnet 5.5', redeployed_by: 'Claude Opus 5.5 (operator)' });
+    book.data.rechecks.push({ round: ROUND, started_at: new Date().toISOString(), wasm_sha256: RECHECK_WASM_SHA256, redeploy_tx: redeployTx });
     book.save();
   }
 }
@@ -269,7 +269,7 @@ const steps = {
     book.check('L6b', 'second claim: ERR_ALREADY_CLAIMED', again.body.error, 'ERR_ALREADY_CLAIMED');
   },
 
-  // ---------------- re-check on the redeployed build (audit fixes), see the header ----------------
+  // ---------------- re-check on the redeployed build, see the header ----------------
   async L1r() {
     const acct = await retry(() => provider.viewAccount({ accountId: CONTRACT }));
     const wasm = fs.readFileSync('contract-v2/res/bot_promises_v2.wasm');
@@ -279,14 +279,14 @@ const steps = {
     book.check('L1r', 'get_config api 2, allow-list unchanged (state kept)', [cfg.api, cfg.allowed_tokens], [2, [TOKEN]]);
     const signers = await v(CONTRACT, 'get_signers');
     book.check('L1r', 'TEE signer still registered (state kept)', signers.map(([k]) => k.slice(0, 8)), ['5a0210f2']);
-    // contract-1: a signer key has one spelling. Re-adding the same key with 0x and upper case must not create a second record.
+    // A signer key has one spelling. Re-adding the same key with 0x and upper case must not create a second record.
     const [pk, info] = signers[0];
     const args = { public_key_hex: '0x' + pk.toUpperCase(), kind: info.kind, model_id: info.model_id, attestation_sha256: info.attestation_sha256, expires_at_ms: String(info.expires_at_ms) };
     const spelled = await tx('L1r', 'owner', CONTRACT, 'add_signer', args, { tgas: 30, deposit: 1n, label: 'add_signer with the key spelled 0x + UPPER CASE (same key, 1 yoctoNEAR)' });
     book.check('L1r', 'add_signer with another spelling of the registered key works', spelled.ok, true);
     const after = await v(CONTRACT, 'get_signers');
     book.check('L1r', 'still exactly one signer record, under the bare lower-case key, otherwise unchanged', [after.map(([k]) => k), { ...after[0][1], added_at_ms: 0 }], [[pk], { ...info, added_at_ms: 0 }]);
-    // contract-1: removing a key that is not registered must fail, not return false with a successful transaction.
+    // Removing a key that is not registered must fail, not return false with a successful transaction.
     const unknown = await tx('L1r', 'owner', CONTRACT, 'remove_signer', { public_key_hex: '11'.repeat(32) }, { tgas: 30, deposit: 1n, label: 'remove_signer of a key that is not registered (must fail)' });
     book.check('L1r', 'remove_signer of an unknown key: ERR_UNKNOWN_SIGNER', unknown.error, 'ERR_UNKNOWN_SIGNER');
     book.check('L1r', 'the signer list is unchanged by the failed remove', (await v(CONTRACT, 'get_signers')).map(([k]) => k), [pk]);
@@ -294,7 +294,7 @@ const steps = {
     book.check('L1r', 'register_order with 0 deposit still fails with ERR_ONE_YOCTO', zero.error, 'ERR_ONE_YOCTO');
   },
 
-  // L6r: a fresh tUSDC order on the redeployed build. contract-2: register_order charges the measured bytes plus the 3-byte status headroom.
+  // L6r: a fresh tUSDC order on the redeployed build. register_order charges the measured bytes plus the 3-byte status headroom.
   async L6r() {
     const id = 'R611-21';
     const sBefore = await v(CONTRACT, 'storage_balance_of', { account_id: SHOP });
@@ -322,7 +322,7 @@ const steps = {
     const after = await tokenBond();
     book.check('L6r', 'bond fell by the payout, reserved fell by 6 tUSDC, paid_out rose by the payout', [String(BigInt(before.bond.bond) - BigInt(after.bond)), String(BigInt(before.bond.reserved) - BigInt(after.reserved)), String(BigInt(after.paid_out) - BigInt(before.bond.paid_out))], ['4000000', '6000000', '4000000']);
     book.check('L6r', `order ${id} is claimed`, (await order(id)).status, 'claimed');
-    // contract-2: the status growth (open -> paying -> claimed) was paid at registration, so the market's own free balance does not shrink beyond the claim's gas deposits (none).
+    // The status growth (open -> paying -> claimed) was paid at registration, so the market's own free balance does not shrink beyond the claim's gas deposits (none).
     const acctAfter = await retry(() => provider.viewAccount({ accountId: CONTRACT }));
     const grewBytes = BigInt(acctAfter.storage_usage) - BigInt(before.acct.storage_usage);
     book.data.l6r_status_growth = { storage_usage_before: String(before.acct.storage_usage), storage_usage_after: String(acctAfter.storage_usage), bytes: String(grewBytes) };

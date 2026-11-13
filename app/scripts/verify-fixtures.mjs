@@ -49,7 +49,7 @@ for (const file of files) {
     failed = true;
     console.log(`FAIL ${file} ${firstFail.check}`);
   } else if (bundle.simulated) {
-    // PLAN rule 9: a simulated bundle is signed with a fake key; never present it as a real receipt.
+    // A simulated bundle is signed with a fake key; never present it as a real receipt.
     console.log(`PASS (SIMULATED key) ${file}`);
   } else {
     // Offline checkBundle verifies against the signing_address stored in the bundle itself, which

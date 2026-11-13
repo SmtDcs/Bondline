@@ -1,4 +1,4 @@
-// node --env-file=.env app/scripts/spike-s2.mjs   (6 chat calls, about $0.01, no tx)
+// node --env-file=.env app/scripts/check-prompt.mjs   (6 chat calls, about $0.01, no tx)
 import { buildRequestBytes, chatExact } from '../lib/nearai.mjs';
 import { parsePromise } from '../lib/promise.mjs';
 const model = process.env.MODEL ?? 'z-ai/glm-5.3-flash';

@@ -1,7 +1,7 @@
-// T17: Tamper button (edit the exact reply bytes -> ERR_NO_RECEIPT_FOR_BYTES + both hashes) and
+// Tamper button (edit the exact reply bytes -> ERR_NO_RECEIPT_FOR_BYTES + both hashes) and
 // the double-claim beat (the Claim button stays clickable, the second click shows the 400
-// ERR_ALREADY_CLAIMED). jsdom is not a dependency (PLAN section 6), so this drives web/app.js with
-// a minimal document, exactly like app/test/web-merchant.test.mjs does for T16.
+// ERR_ALREADY_CLAIMED). jsdom is not a dependency, so this drives web/app.js with
+// a minimal document, exactly like app/test/web-merchant.test.mjs does.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';

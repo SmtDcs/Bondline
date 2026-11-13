@@ -1,4 +1,4 @@
-// T12 review fix: a failed on-chain call must answer with {error, tx, explorer} (INTERFACES 11).
+// A failed on-chain call must answer with {error, tx, explorer} (INTERFACES 11).
 // The error is produced by the real callFinal() from a stubbed account outcome, not hand-built.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,7 +46,7 @@ test('an error without a transaction has no explorer link', async () => {
 });
 
 // GET /api/config is exactly publicConfig(loadConfig(env)): it must carry the DEMO_ORDERS naive
-// flag (CR-3) for the UI label and never any key material.
+// Flag for the UI label and never any key material.
 test('/api/config exposes the naive order flag and no key material', () => {
   const env = {
     CONTRACT_ID: 'cbp-sm1110.testnet',
@@ -87,7 +87,7 @@ test('callFinal keeps the tx hash of a thrown contract panic', async () => {
   assert.equal(body.explorer, explorerTx('ChainTxHash222'));
 });
 
-// docs/STABLECOIN.md 14: the v2 /api/config additions are additive; the v1 payload above is unchanged.
+// docs/STABLECOIN.md 12: the v2 /api/config additions are additive; the v1 payload above is unchanged.
 test('/api/config on v2 adds contract_api, token metadata and per-order token/expiry, never keys', () => {
   const env = {
     CONTRACT_ID: 'v2.cbp-sm1110.testnet',

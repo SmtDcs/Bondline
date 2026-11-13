@@ -1,9 +1,9 @@
-// Frontend follow-ups after the code review: each test fails without its fix.
+// Frontend regressions: each test fails without its fix.
 //  - ?offline=1 on a v2 recording must touch nothing but localhost (the storage_balance_of leak)
 //  - loadConfig must fail loudly on a non-JSON/error body instead of "Unexpected token"
 //  - one /api/chat at a time (a double Enter must not buy two live replies)
 //  - a failed claim keeps the server's tx link and detail
-//  - index.html carries the viewport, labels and live regions a judge expects
+//  - index.html carries the viewport, labels and live regions a screen reader needs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

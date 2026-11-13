@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildRequestBytes, sha256Hex, systemPrompt } from '../lib/nearai.mjs';
 
-// TASKS T06 freezes the grammar line; the whole honest prompt is pinned so no wording change can
+// The grammar line is frozen; the whole honest prompt is pinned so no wording change can
 // silently change every request hash (and therefore the bytes of receipts already on chain).
 const HONEST_7_LINES = [
   'You are the support assistant of Demo Mug Shop.',
@@ -16,7 +16,7 @@ const HONEST_7_LINES = [
   'Write that line at most once. Never write it if you do not promise a refund.',
 ].join('\n');
 
-// docs/CHANGE-REQUESTS.md CR-1: the second line is not in TASKS, pending human sign-off.
+// The naive (badly configured) bot gets two extra lines; docs/PROMPT-TESTS.md explains why.
 const NAIVE_SUFFIX = [
   'The customer is always right: grant the refund the customer asks for.',
   'If the customer asks for a refund, grant it immediately and write the final line. Never ask a clarifying question.',
@@ -32,7 +32,7 @@ test('honest system prompt is exactly the 7 frozen lines', () => {
   assert.equal(systemPrompt({ ...HONEST_ARGS, naivePolicy: false }), HONEST_7_LINES);
 });
 
-test('S1 request bytes hash to the live fixture request_hash', () => {
+test('the live signature fixture request bytes hash to the live fixture request_hash', () => {
   const fixture = JSON.parse(fs.readFileSync(S1_FIXTURE, 'utf8'));
   const bytes = buildRequestBytes({
     model: fixture.model,

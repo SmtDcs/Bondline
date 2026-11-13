@@ -1506,7 +1506,7 @@ fn withdraw_callback_treats_a_non_empty_successful_result_as_paid() {
     assert_eq!(events().len(), 1);
 }
 
-// ---- final review F1: money methods need exactly 1 yoctoNEAR (full-access key only) ----
+// ---- money methods need exactly 1 yoctoNEAR (full-access key only) ----
 
 fn panics_with(f: impl FnOnce() + std::panic::UnwindSafe, needle: &str) {
     let err = std::panic::catch_unwind(f).expect_err("must panic");
@@ -1605,7 +1605,7 @@ fn register_receipt_and_claim_stay_callable_with_a_zero_deposit() {
     drop(c.claim(acc("shop.testnet"), "A123".into(), b64(&vec["honest"], "response_b64")));
 }
 
-// ======================= audit fixes: contract-1 / contract-2 =======================
+// ======================= contract-1 / contract-2 =======================
 
 #[test]
 fn signer_keys_are_canonical_so_revocation_works_with_any_spelling() {
@@ -1694,7 +1694,7 @@ fn no_status_transition_grows_the_order_record_beyond_the_prepaid_headroom() {
     assert_eq!(longest - "open".len(), headroom);
 }
 
-// ======================= audit fixes: tests-1 .. tests-6 =======================
+// ======================= tests-1 .. tests-6 =======================
 
 /// owner + honest signer + shop.testnet (3 NEAR bond, 1 NEAR storage) + one 2 NEAR / 30% order A123, NO receipt yet.
 fn one_order_no_receipt() -> Contract {
@@ -1710,7 +1710,7 @@ fn try_register(c: &mut Contract, merchant: &str, order: &str, x: &Value) {
     c.register_receipt(order.into(), s(x, "signed_text"), s(x, "signature_hex"), s(x, "signer_public_key_hex"));
 }
 
-// ---- tests-1: the signer registry guards ----
+// ---- the signer registry guards ----
 
 #[test]
 fn only_the_owner_can_add_a_signer() {
@@ -1829,7 +1829,7 @@ fn add_signer_validates_kind_model_attestation_and_expiry() {
     assert_eq!(c.get_signer(pk).unwrap().kind, "gateway");
 }
 
-// ---- tests-3: solvency, the sum of liabilities never exceeds the bond ----
+// ---- solvency, the sum of liabilities never exceeds the bond ----
 
 #[test]
 fn token_orders_cannot_reserve_more_than_the_free_token_bond() {
@@ -1898,7 +1898,7 @@ fn the_books_balance_after_claim_failed_payout_withdraw_and_expiry() {
     assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().reserved, U128(0));
 }
 
-// ---- tests-4: receipt binding ----
+// ---- receipt binding ----
 
 #[test]
 fn a_reply_whose_token_names_another_order_cannot_be_claimed_under_this_one() {
@@ -1940,7 +1940,7 @@ fn a_registered_receipt_cannot_be_overwritten_or_moved_to_another_order() {
     assert!(p.ok, "{:?}", p);
 }
 
-// ---- tests-5: exact error codes, with receipts that are NOT yet stored ----
+// ---- exact error codes, with receipts that are NOT yet stored ----
 
 #[test]
 fn register_receipt_needs_an_open_order_each_status_has_its_own_code() {
@@ -2041,7 +2041,7 @@ fn withdraw_gas_guard_has_its_own_code_and_leaves_the_bond_alone() {
     assert_eq!(c.get_bond(acc("shop.testnet"), Some(acc(TUSDC))).unwrap().bond, U128(19_000_000));
 }
 
-// ---- tests-6: money paths ----
+// ---- money paths ----
 
 #[test]
 fn storage_withdraw_sends_exactly_the_requested_amount_to_the_caller() {

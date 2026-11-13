@@ -1,7 +1,7 @@
 // The V2 demo setup as data: a list of steps (signer, contract, method, args, deposit, gas).
 // app/scripts/demo-setup-v2.mjs prints it (--dry-run, reads no key) or sends it with near-api-js.
 // Ported from the V2 branches of app/scripts/demo-setup.sh (which used near-cli). After the 1-yocto fix
-// (docs/STABLECOIN.md section 20) `register_order` always attaches exactly 1 yoctoNEAR: there is no
+// `register_order` always attaches exactly 1 yoctoNEAR: there is no
 // override for the old build any more.
 import { buildAddBondMsg, ftTransferCallArgs } from './token.mjs';
 

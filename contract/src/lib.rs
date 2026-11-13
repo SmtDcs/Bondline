@@ -1,5 +1,5 @@
 //! Claimable bot promises: a merchant bond that pays a shopper when the merchant's support bot
-//! made a TEE-signed PROMISE token. See INTERFACES.md for the frozen interface.
+//! made a TEE-signed PROMISE token. The interface is docs/INTERFACES.md.
 
 pub mod parse;
 #[cfg(feature = "ecdsa")]

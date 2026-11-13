@@ -91,7 +91,7 @@ test('V2 ASSET=near sets up the NEAR path: storage balance, NEAR bond, NEAR orde
   assert.doesNotMatch(res.stdout, /ft_transfer_call|registration_only|tusdc/, 'no token command at all');
 });
 
-test('final review F1: v2 register_order commands attach exactly 1 yoctoNEAR (token and NEAR path)', () => {
+test('v2 register_order commands attach exactly 1 yoctoNEAR (token and NEAR path)', () => {
   for (const extra of [{}, { ASSET: 'near', TOKEN_ID: '' }]) {
     const res = runDry(extra);
     assert.equal(res.status, 0, res.stderr);
@@ -106,7 +106,7 @@ test('final review F1: v2 register_order commands attach exactly 1 yoctoNEAR (to
 
 test('the 0-deposit override for the pre-redeploy v2 build is gone: REGISTER_ORDER_DEPOSIT is ignored', () => {
   // This replaces the test that used to assert the override works. The behaviour was removed on purpose
-  // after the operator redeployed the market with the 1-yocto check (2026-11-10); a 0 deposit is now a failure.
+  // after the market was redeployed with the 1-yocto check (2026-11-10); a 0 deposit is now a failure.
   for (const extra of [{}, { ASSET: 'near', TOKEN_ID: '' }]) {
     const res = runDry({ ...extra, REGISTER_ORDER_DEPOSIT: '0 NEAR' });
     assert.equal(res.status, 0, res.stderr);

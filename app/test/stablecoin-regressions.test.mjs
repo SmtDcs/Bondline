@@ -1,4 +1,4 @@
-// Review fixes for the stablecoin round (docs/STABLECOIN.md 18): each test fails on the code before the fix.
+// Stablecoin regressions: each test fails on the code before the fix.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,7 +8,7 @@ import { makeRelayer } from '../lib/relayer.mjs';
 import { buildLiveConfig } from '../lib/live-config.mjs';
 
 globalThis.location = new URL('http://127.0.0.1:8787/');
-const app = await import('../../web/app.js?review-fixes');
+const app = await import('../../web/app.js?regressions');
 
 const MERCHANT = 'cbp-shop-sm1110.testnet';
 const BUYER = 'cbp-alice-sm1110.testnet';
@@ -20,7 +20,7 @@ const cfg = (extra = {}) => ({
 });
 
 test('a failed NEAR payout does not tell the shopper to register on a token (even with TOKEN_ID set)', async (t) => {
-  const dataDir = fs.mkdtempSync(path.join('app/test', '.review-'));
+  const dataDir = fs.mkdtempSync(path.join('app/test', '.regress-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const r = makeRelayer(cfg({ tokenId: 'tusdc.testnet' }), {
     provider: {}, merchant: {}, buyer: {}, dataDir, api: 2,

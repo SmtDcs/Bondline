@@ -5,13 +5,13 @@
 #        V2=1 ASSET=near RUN=03 bash app/scripts/demo-setup.sh       (v2, NEAR bond + NEAR orders; no TOKEN_ID needed)
 # Needs CONTRACT_ID MERCHANT_ID BUYER_ID in the shell or .env; V2 also needs TOKEN_ID.
 #
-# Deviations from TASKS T13, recorded in docs/CHANGE-REQUESTS.md CR-2:
+# Notes:
 #  - .env is parsed by node, never sourced: a value with spaces (DEMO_ORDERS labels) cannot break the run,
 #    and only CONTRACT_ID / MERCHANT_ID / BUYER_ID / TOKEN_ID are read.
 #  - get_merchant output is captured once and matched with a bash pattern (no pipe under pipefail, no
 #    stderr silencing), so a network error aborts instead of looking like "merchant missing".
 #  - the free bond is topped up when it cannot cover this run's two orders (ERR_INSUFFICIENT_FREE_BOND).
-# CR-4 (docs/STABLECOIN.md 14): V2=1 wires the stablecoin demo: merchant storage balance on the
+# V2=1 wires the stablecoin demo: merchant storage balance on the
 # market, the merchant and the buyer registered on the token, a token bond by ft_transfer_call and
 # two orders with token + ttl_ms. DRY_RUN=1 prints the same commands and reads no key.
 set -euo pipefail
@@ -34,8 +34,8 @@ BUYER_ID="${BUYER_ID:-$(env_get BUYER_ID)}"
 TOKEN_ID="${TOKEN_ID:-$(env_get TOKEN_ID)}"
 V2="${V2:-0}"
 DRY_RUN="${DRY_RUN:-0}"
-# Final review F1: v2 register_order needs exactly 1 yoctoNEAR (full-access key only; a function-call key
-# cannot attach a deposit). The redeployed market (wasm sha256 095bb43e..., and the audit-fixed build 8f4abd25... after it) has that check, so the V2 paths
+# V2 register_order needs exactly 1 yoctoNEAR (full-access key only; a function-call key
+# cannot attach a deposit). The deployed v2 market has that check, so the V2 paths
 # always attach 1 yoctoNEAR (the old REGISTER_ORDER_DEPOSIT override for the previous build is gone).
 # The v1 path keeps 0 (v1 is unchanged). The near-api-js version of the V2 steps (no near-cli) is
 # app/scripts/demo-setup-v2.mjs.
@@ -61,7 +61,7 @@ if [ "$V2" = "1" ] && [ "$ASSET" = "near" ]; then
   NEAR_AMOUNT_YOCTO="${NEAR_AMOUNT_YOCTO:-2000000000000000000000000}"   # 2 NEAR
   STORAGE_DEPOSIT="${STORAGE_DEPOSIT:-0.5 NEAR}"
   NEAR_ARGS=(network-config testnet sign-with-legacy-keychain send)
-  # client-8: a merchant that already has its NEAR bond (a second run, or the repo's shop account) must not be
+  # A merchant that already has its NEAR bond (a second run, or the repo's shop account) must not be
   # registered again: register_merchant would fail ERR_MERCHANT_EXISTS and `set -e` would stop before the orders are
   # registered (and storage_deposit would add another 0.5 NEAR each run). Same get_merchant guard as the v1 branch;
   # captured once, so a network error aborts instead of reading as "merchant missing". DRY_RUN prints the commands.
@@ -107,7 +107,7 @@ if [ "$V2" = "1" ]; then
     MARKET_ON_TOKEN=$(near contract call-function as-read-only "$TOKEN_ID" storage_balance_of \
       json-args "{\"account_id\":\"$CONTRACT_ID\"}" network-config testnet now)
     if [[ "$MARKET_ON_TOKEN" != *'"total"'* ]]; then
-      echo "the market $CONTRACT_ID is not registered on $TOKEN_ID: run its storage_deposit first (docs/runbook.md, L1)" >&2
+      echo "the market $CONTRACT_ID is not registered on $TOKEN_ID: run its storage_deposit first (docs/DEPLOY.md)" >&2
       exit 1
     fi
   fi
@@ -173,4 +173,4 @@ for ID in "A123-$RUN" "A124-$RUN"; do
   near contract call-function as-transaction "$CONTRACT_ID" register_order json-args "{\"order_id\":\"$ID\",\"buyer\":\"$BUYER_ID\",\"amount\":\"$TWO_NEAR\",\"max_bps\":3000}" prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as "$MERCHANT_ID" network-config testnet sign-with-legacy-keychain send
 done
 merchant_json
-echo "Now set DEMO_ORDERS=\"A123-$RUN:Broken mug:2000,A124-$RUN:Late delivery:2000:naive\" in .env (the trailing :naive marks the badly configured bot, PLAN R4)"
+echo "Now set DEMO_ORDERS=\"A123-$RUN:Broken mug:2000,A124-$RUN:Late delivery:2000:naive\" in .env (the trailing :naive marks the badly configured bot)"

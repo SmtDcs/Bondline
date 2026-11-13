@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Usage: node app/scripts/record-transcript.mjs A123-10 A124-10     (from the repo root)
 //
-// T18: turn one live demo run into committed replay files.
+// Turn one live demo run into committed replay files.
 //  - takes the newest bundle in data/bundles/ for each order id (args: A123-nn A124-nn)
 //  - copies them to fixtures/live/a123.json and fixtures/live/a124.json
 //  - writes fixtures/live/a123-tampered.json: the A123 response bytes with the first bps=2000
@@ -17,7 +17,7 @@
 // order status first), so the transcript's chat-time `preview_claim`, each `views.tamper` outcome
 // and the first chat step's pre-claim bond meter are COMPUTED by app/lib/transcript.mjs with the
 // contract's own rules from the committed bundle bytes + get_receipt + get_order + the claim log.
-// Each computed view is marked `computed: true` and the transcript gets `computed_views: true` (client-2): they are
+// Each computed view is marked `computed: true` and the transcript gets `computed_views: true`: they are
 // NOT contract answers, and the replay page says so. To record real chat-time views instead, run this script while
 // the orders are still open (before the claims): live views are then kept unmarked.
 // No hand-made snapshot file is read: re-running this script against the same bundles/logs
@@ -155,7 +155,7 @@ if (api === 2) {
 const transcript = {
   type: api === 2 ? 'bot-promises/replay/v2' : 'bot-promises/replay/v1',
   recorded_at: new Date().toISOString(),
-  // client-2: this script runs after the claims, so the pre-claim bond meter is always arithmetic; views the contract
+  // This script runs after the claims, so the pre-claim bond meter is always arithmetic; views the contract
   // did not return live carry `computed: true` (see the header comment) and the replay page says so.
   computed_views: true,
   contract: contractId,

@@ -1,4 +1,4 @@
-// T11 review fixes: input validation, order ownership/status, chat-id sanitising, edit guard.
+// Input validation, order ownership/status, chat-id sanitising, edit guard.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -85,7 +85,7 @@ test('register-edited refuses an edit that is not in the reply bytes', async () 
   await assert.rejects(() => r.handleRegisterEdited({ order_id: 'A123-01', bundle, edit: { from: '', to: '3000' } }), isBadRequest);
 });
 
-// T16 review fix: the badly configured (naive) bot is a DEMO_ORDERS property, not an order-id prefix.
+// The badly configured (naive) bot is a DEMO_ORDERS property, not an order-id prefix.
 test('DEMO_ORDERS marks the naive order explicitly and keeps the INTERFACES 13 form working', () => {
   assert.deepEqual(parseDemoOrders('A123-01:Broken mug:2000,A124-01:Late delivery:2000:naive'), [
     { order_id: 'A123-01', label: 'Broken mug', policy_bps: 2000, naive: false },
@@ -142,7 +142,7 @@ test('the naive flag (not the id prefix) sets the prompt: A124-* stays honest un
   assert.ok(naiveA123.messages[0].content.includes(NAIVE_SENTENCES[0]));
 });
 
-// --- T18: claims.log / merchant.log (the replay transcript reads them back) -------------------
+// --- claims.log / merchant.log (the replay transcript reads them back) -------------------
 
 /** A throwaway data/ directory so the tests never touch the real gitignored logs. */
 function tempDataDir(t) {
@@ -249,9 +249,9 @@ test('handleRegisterEdited appends the merchant.log line on ERR_BAD_SIGNATURE', 
   }]);
 });
 
-// --- audit fixes: /api/demo/claim validation, DEMO_ORDERS="" ---------------------------------
+// --- /api/demo/claim validation, DEMO_ORDERS="" ---------------------------------
 
-test('audit: handleClaim validates input before any transaction is signed', async (t) => {
+test('handleClaim validates input before any transaction is signed', async (t) => {
   let signed = 0;
   const r = fakeRelayer(tempDataDir(t), async () => { signed += 1; return { txHash: 'T', value: {} }; });
   const bad = [
@@ -265,7 +265,7 @@ test('audit: handleClaim validates input before any transaction is signed', asyn
   assert.equal(signed, 1);
 });
 
-test('audit: an empty DEMO_ORDERS means the default orders, never zero orders', async () => {
+test('an empty DEMO_ORDERS means the default orders, never zero orders', async () => {
   const { loadConfig, DEFAULT_DEMO_ORDERS } = await import('../lib/relayer.mjs');
   const env = {
     CONTRACT_ID: CONTRACT_ID, MERCHANT_ID, BUYER_ID, RELAYER_SECRET_KEY: 'x', BUYER_CLAIM_SECRET_KEY: 'y', NEARAI_API_KEY: 'z',

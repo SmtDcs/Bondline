@@ -1,4 +1,4 @@
-// T18 review: the recorder's rules are testable without a live RPC.
+// The recorder's rules are testable without a live RPC.
 // `tamperedCopy` is exactly the page's Tamper edit, and the edited bytes must fail checkBundle.
 import test from 'node:test';
 import assert from 'node:assert/strict';

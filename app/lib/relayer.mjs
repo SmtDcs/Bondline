@@ -10,7 +10,7 @@ import { ftMetadata, registrationHint } from './token.mjs';
 import { formatAmount } from './amount.mjs';
 
 /**
- * A badly configured (naive) order is told it may promise up to 100% (TASKS T06/S2). This is a
+ * A badly configured (naive) order is told it may promise up to 100% (docs/PROMPT-TESTS.md). This is a
  * SYSTEM-PROMPT input only: the order's on-chain max_bps (3000 in the demo) still caps the payout.
  */
 export const NAIVE_POLICY_BPS = 10000;
@@ -18,8 +18,8 @@ export const NAIVE_POLICY_BPS = 10000;
 export const DEFAULT_DEMO_ORDERS = 'A123-01:Broken mug:2000,A124-01:Late delivery:2000:naive';
 
 /**
- * DEMO_ORDERS = `order_id:label:policy_bps[:naive]`, comma separated (INTERFACES 13 plus CR-3:
- * the optional trailing `naive` flag labels the badly configured bot; without it the order gets the
+ * DEMO_ORDERS = `order_id:label:policy_bps[:naive]`, comma separated (INTERFACES 13; the
+ * optional trailing `naive` flag labels the badly configured bot; without it the order gets the
  * honest prompt and its own policy_bps). The flag is the ONLY switch: no order id is special.
  */
 export function parseDemoOrders(value = DEFAULT_DEMO_ORDERS) {
@@ -86,7 +86,7 @@ export function makeRelayer(cfg, deps = {}) {
   const dataDir = deps.dataDir ?? 'data';
   const bundleDir = path.join(dataDir, 'bundles');
   fs.mkdirSync(bundleDir, { recursive: true });
-  // T18: one JSON line per claim / register-edited attempt, read back by app/scripts/record-transcript.mjs.
+  // One JSON line per claim / register-edited attempt, read back by app/scripts/record-transcript.mjs.
   // A log write must never turn a paid-out claim (or a recorded failed registration) into an API error.
   const appendLog = (file, entry) => {
     try { fs.appendFileSync(path.join(dataDir, file), JSON.stringify(entry) + '\n'); }
@@ -130,7 +130,7 @@ export function makeRelayer(cfg, deps = {}) {
     // A token order shows its own currency; a NEAR order keeps the frozen `2 NEAR` wording (byte identical).
     const amountLabel = order.token ? await tokenLabel(order.token, order.amount) : undefined;
     const turns = history.get(order_id) ?? [];
-    // The DEMO_ORDERS `naive` flag marks the badly configured bot (docs/spike-s2.md, PLAN R4).
+    // The DEMO_ORDERS `naive` flag marks the badly configured bot (docs/PROMPT-TESTS.md).
     // It changes the system prompt (and the policy the bot is told about) only; the on-chain max_bps
     // stays 3000, so the contract caps the payout.
     const naive = meta.naive === true;
@@ -194,7 +194,7 @@ export function makeRelayer(cfg, deps = {}) {
       appendLog('claims.log', { order_id, claim_tx: r.txHash, result: r.value });
       return { ok: true, result: r.value, claim_tx: r.txHash, explorer: explorerTx(r.txHash) };
     } catch (e) {
-      // T18: the replay's `claim-again` step is the logged 400 (ERR_ALREADY_CLAIMED), not a literal.
+      // The replay's `claim-again` step is the logged 400 (ERR_ALREADY_CLAIMED), not a literal.
       // Do not double-log the ERR_PAYOUT_FAILED entry written above.
       if (errCode(e) !== 'ERR_PAYOUT_FAILED') appendLog('claims.log', { order_id, claim_tx: e.txHash ?? null, error: errCode(e) });
       throw e;

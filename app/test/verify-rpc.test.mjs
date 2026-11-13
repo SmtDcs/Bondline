@@ -1,4 +1,4 @@
-// T22 review: `npm run verify` must report an unreachable testnet RPC as one FAIL row
+// `npm run verify` must report an unreachable testnet RPC as one FAIL row
 // (exit 1, `NOT VERIFIED`), not crash with a raw `TypeError: fetch failed` stack trace.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ const BUNDLE = path.resolve('fixtures/live/a123.json');
 
 function run(extra) {
   // RFC 6761 reserves .invalid: DNS resolution fails without any real network, like the
-  // judge's ENOTFOUND, while the off-chain checks run locally.
+  // reviewer's ENOTFOUND, while the off-chain checks run locally.
   const res = spawnSync(process.execPath, [SCRIPT, BUNDLE, ...extra], { encoding: 'utf8' });
   if (res.error) throw res.error;
   return { status: res.status, out: `${res.stdout}${res.stderr}` };
