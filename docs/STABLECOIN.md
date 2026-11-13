@@ -1,339 +1,172 @@
-# Contract v2: stablecoin (NEP-141) support - design
+# Contract v2: stablecoin (NEP-141) support
 
-Status: implemented in `contract-v2/` and the client, deployed on testnet as `v2.cbp-sm1110.testnet` with the mock token `sm1110-tusdc.testnet` (source in `token/`). The live flows L1-L14 (section 12) were run on 2026-11-10 and recorded in `fixtures/runs/v2-live-run.json`; L4(b) was not run. After the final fixes the contract was redeployed in place on 2026-11-11 and a short re-check (code hash, signer keys, a fresh tUSDC claim and its failure cases) was run on that build. The gas constants were measured and kept (section 7).
+Implemented in `contract-v2/`, deployed on testnet as `v2.cbp-sm1110.testnet` with the mock token `sm1110-tusdc.testnet` (source in `token/`). This is the interface spec for v2; the v1 interface is `docs/INTERFACES.md`.
 
-This file is the interface spec for v2. The v1 interface is `docs/INTERFACES.md`; the deliberate differences are listed in section 13.
+## What v2 adds
 
-## 1. Scope
+A merchant can hold a bond in an allowed NEP-141 token alongside a NEAR bond, and claims pay out in the bond's token. Every outgoing transfer has a callback that restores the books if it fails, so a failed payout can be retried. Storage is paid by whoever creates state, order ids are per merchant, and orders expire, releasing an unclaimed reservation.
 
-In scope:
+v1 stays deployed and unchanged. v2 starts empty: no migration, no `migrate`. `parse.rs` and `ecdsa.rs` are copied from v1 byte for byte.
 
-1. NEP-141 bonds. A merchant can add a bond in an allowed token with `ft_transfer_call`. Promises (orders) and receipts record the token and amount. Claims pay out in the bond's token.
-2. Payouts that can fail safely: every outgoing transfer (token or NEAR) has a callback that puts the books back if the transfer failed, so the user can retry.
-3. The three limits the README lists as code problems: storage deposit accounting (whoever creates state pays), a per-merchant order-id namespace, and order expiry that releases an unclaimed reservation back to the bond.
-4. A new contract account. The v1 deployment stays as history.
+Out of scope, as in v1: on-chain TDX verification, other promise kinds, disputes, wallet login, mainnet, NEAR Intents.
 
-Out of scope (unchanged from v1): on-chain TDX verification, other promise kinds, disputes, wallet login, mainnet. No NEAR Intents.
+## Accounts
 
-## 2. Accounts, versions, migration
+| Item | Value |
+| --- | --- |
+| Contract | `v2.cbp-sm1110.testnet`, source in `contract-v2/`, owner = itself |
+| Merchant / buyer | `cbp-shop-sm1110.testnet` / `cbp-alice-sm1110.testnet`, registered again on v2 |
+| Second buyer | `cbp-bob-sm1110.testnet`, kept unregistered on the token for the failure tests |
+| Token | `sm1110-tusdc.testnet`, 6 decimals |
+| Function-call keys | merchant `register_receipt`, buyer `claim`, both scoped to v2 |
 
-| Item | v1 (history, stays as is) | v2 (this design) |
-| --- | --- | --- |
-| Contract | `cbp-sm1110.testnet`, wasm sha256 `c4d88ead…8941`, source in `contract/` | `v2.cbp-sm1110.testnet`, source in `contract-v2/` |
-| Owner | itself | itself (`v2.cbp-sm1110.testnet`), same trust model and same README caveat about the full-access key |
-| Merchant | `cbp-shop-sm1110.testnet` | same account, registered again on v2 (state is per contract) |
-| Buyer | `cbp-alice-sm1110.testnet` | same account |
-| Second buyer, for failure tests | - | `cbp-bob-sm1110.testnet`, **never registered on the token** until a test does it (operator creates it) |
-| Token | - | `$TOKEN_ID`, the shared mock tUSDC; the operator gives the account id later |
-| Function-call keys | scoped to `cbp-sm1110.testnet` | new key pairs scoped to `v2.cbp-sm1110.testnet` (merchant: `register_receipt`; buyer: `claim`). A key can have only one permission per account, so the v1 keys are left in place and the new ones are different keys |
+The client tells v1 from v2 by calling `get_config` and treating `MethodNotFound` as v1; any other error is raised.
 
-Decisions:
-
-- **No state migration and no `migrate` method.** v2 starts empty. v1 merchants, orders, receipts and the claimed history stay on v1, and v1 keeps working. `contract/` (v1 source and its 16 tests) is **not touched**: v2 lives in a new crate `contract-v2/` so the v1 wasm stays reproducible and no v1 test is edited. `parse.rs` and `ecdsa.rs` are copied byte for byte (the build step checks with `cmp`).
-- **Sub-account creation.** `v2.cbp-sm1110.testnet` can only be created by `cbp-sm1110.testnet`. That account's balance backs the v1 bonds, so the operator creates the sub-account with a small deposit (0.2 NEAR) and funds the real storage cost (about 6 NEAR for wasm plus a buffer, *tune*) from the merchant account or another operator account, never from the v1 contract's own free balance. If the operator cannot do this, the fallback is a faucet-created top-level account such as `cbp2-sm1110.testnet`, and every id in this file is then replaced by it.
-- **Init.** `new(owner, allowed_tokens, min_order_ttl_ms)`. The testnet deploy passes `[$TOKEN_ID]` and a `min_order_ttl_ms` of 120000 (2 minutes) so expiry can be recorded live. The README must say the 2 minute minimum is a demo setting; the contract default is 1 hour.
-- **The TEE signer** is registered again on v2 with `add_signer` (a new contract has an empty signer list). The operator re-runs `npm run attest` for a fresh record or reuses `fixtures/attestation/z-ai_glm-5.3-flash-ed25519-2026-11-10-renewed.json` if its hash is still the right evidence; either way `expires_at_ms` must be after the judging window.
-- **The client works against both versions.** `npm run verify` must keep verifying the committed v1 fixtures against `cbp-sm1110.testnet`. The client detects the version by calling the new view `get_config` and treats a `MethodNotFound` error as v1; any other error is raised, never read as v1 (section 10).
-
-## 3. Contract v2: state
+## State
 
 ```text
 Contract {
   owner: AccountId,
-  allowed_tokens: Vec<AccountId>,        // fixed at init, at most 8, no duplicates, never changes
-  min_order_ttl_ms: u64,                 // fixed at init
-  signers:   IterableMap<String, SignerInfo>,            // unchanged
+  allowed_tokens: Vec<AccountId>,        // fixed at init, at most 8, no duplicates
+  min_order_ttl_ms: u64,
+  signers:   IterableMap<String, SignerInfo>,
   bonds:     LookupMap<(AccountId, Option<AccountId>), Bond>,   // (merchant, token); None = NEAR
   orders:    LookupMap<(AccountId, String), Order>,             // (merchant, order_id)
   receipts:  LookupMap<(AccountId, String), Receipt>,           // (merchant, response_hash)
-  storage:   LookupMap<AccountId, U128>,                        // prepaid storage balance (section 6)
+  storage:   LookupMap<AccountId, U128>,                        // prepaid storage balance
 }
 Bond    { token: Option<AccountId>, bond: U128, reserved: U128, paid_out: U128 }
-Order   { ...v1 fields..., token: Option<AccountId>, expires_at_ms: U64 }   // status: open | paying | claimed | expired
+Order   { ...v1 fields..., token: Option<AccountId>, expires_at_ms: U64 }   // open | paying | claimed | expired
 Receipt { ...v1 fields..., token: Option<AccountId>, order_amount: U128 }
 ```
 
-- `token: None` means NEAR, in storage and in JSON (`null`). The text `"near"` is not used because `near` is a valid account id.
-- **The token kind is fixed per bond, per order and per receipt.** A bond is one `(merchant, token)` pair, so a merchant can hold a NEAR bond and a tUSDC bond side by side, and they never mix. `register_order` picks the bond with its `token` argument and stores that token on the order; the receipt copies it. `amount`, `liability` and every payout are raw `u128` in that token's smallest unit.
-- Bond records are never deleted (not even at zero). So there is no storage refund logic, and the callbacks always find the record.
-- Storage keys: a new `StorageKey` enum with new prefixes. v2 never reads v1 state.
-- Receipts move to `(merchant, response_hash)`. This also removes the v1 case where another merchant copies the public `register_receipt` args and blocks the reply for good: it now only fills that other merchant's own namespace. A receipt filed under the wrong order by the same merchant still blocks that reply (`ERR_RECEIPT_EXISTS`, unchanged limit, stays in the README).
+`token: None` means NEAR in storage and JSON, never the string `"near"`, since `near` is a valid account id. The token is fixed per bond, per order and per receipt, so a merchant's NEAR and tUSDC bonds never mix. Bond records are never deleted, not even at zero, so callbacks always find them and there is no storage refund.
 
-## 4. Contract v2: methods
+Receipts are keyed by `(merchant, response_hash)`, so another merchant copying public `register_receipt` args only fills its own namespace. A receipt filed under the wrong order by the same merchant still blocks that reply (`ERR_RECEIPT_EXISTS`).
 
-Prepaid gas stays 100 Tgas for the existing calls. "Compatible" means same name, same arguments, same errors as v1 unless the line says otherwise.
+## Methods
 
-| Method | Kind | Who | Change from v1 |
+Prepaid gas stays 100 Tgas. A method is compatible with v1 unless the row says otherwise.
+
+| Method | Kind | Who | Notes |
 | --- | --- | --- | --- |
-| `new(owner, allowed_tokens: Option<Vec<AccountId>>, min_order_ttl_ms: Option<U64>)` | init | deployer | Both new arguments are optional, so `{"owner":"x"}` still works (no tokens, 1 hour minimum TTL). Panics: `ERR_TOKEN_LIST` (duplicate, more than 8), `ERR_TTL` (zero or above the max). |
-| `add_signer`, `remove_signer` | change | owner | None in the interface; also requires exactly 1 yoctoNEAR (`ERR_ONE_YOCTO`). |
-| `register_merchant()` payable >= 1 NEAR | change | anyone, once | Creates the **NEAR** bond. The storage cost of the new record is taken from the attached deposit: `bond = deposit - storage cost`, and the 1 NEAR minimum applies to that `bond`. |
-| `add_bond()` payable | change | merchant | NEAR bond only, as before (needs a NEAR bond, else `ERR_NOT_MERCHANT`). |
-| `ft_on_transfer(sender_id, amount, msg) -> PromiseOrValue<U128>` | change | the token contract | **New.** The only way tokens come in (section 5). |
-| `withdraw_bond(amount, token: Option<AccountId>)` | change | merchant | `token` is optional, `None` = NEAR, so v1 calls work. Pays out with a callback (section 7). Needs exactly 1 yoctoNEAR (`ERR_ONE_YOCTO`). |
-| `register_order(order_id, buyer, amount, max_bps, token: Option<AccountId>, ttl_ms: Option<U64>)` | change | merchant | Two optional arguments. Key is `(merchant, order_id)`. New checks below. Needs exactly 1 yoctoNEAR (`ERR_ONE_YOCTO`). |
-| `release_expired(merchant, order_id)` | change | anyone | **New.** Releases the reservation of an expired order (section 8). |
-| `register_receipt(order_id, signed_text, signature_hex, signer_public_key_hex)` | change | the order's merchant | Same arguments. The order is looked up as `(caller, order_id)`. New checks below. |
-| `claim(merchant, order_id, response_b64)` | change | the order's buyer | **Gains `merchant`** (required, because order ids are per merchant). Pays through a callback (section 7). |
-| `storage_deposit(account_id: Option<AccountId>)` payable, `storage_withdraw(amount: Option<U128>)`, `storage_balance_of(account_id)` | change/view | anyone / the account | **New** (section 6). Shaped like NEP-145; the design does not claim full NEP-145 compliance. |
-| `on_claim_paid(...)`, `on_withdraw_resolved(...)` | callback | the contract itself (`#[private]`) | **New** (section 7). |
-| `get_owner`, `get_signer`, `get_signers` | view | anyone | none |
-| `get_merchant(merchant)` | view | anyone | Returns the NEAR bond in the v1 shape `{bond, reserved, paid_out}`, so old readers still work. |
-| `get_bond(merchant, token: Option<AccountId>)` / `get_bonds(merchant)` | view | anyone | **New.** `get_bonds` lists the NEAR bond and one entry for each allowed token that exists. |
-| `get_order(merchant, order_id)` | view | anyone | **Gains `merchant`.** Result has `token`, `expires_at_ms`. |
-| `get_receipt(merchant, response_hash)` | view | anyone | **Gains `merchant`.** Result has `token`, `order_amount`. |
-| `preview_claim(merchant, order_id, response_b64)` | view | anyone | **Gains `merchant`.** Result has `token`. Never panics. |
-| `get_config()` | view | anyone | **New.** `{ "api": 2, "owner", "allowed_tokens", "min_order_ttl_ms", "max_order_ttl_ms", "default_order_ttl_ms" }`. Used by clients to tell v2 from v1. |
+| `new(owner, allowed_tokens?, min_order_ttl_ms?)` | init | deployer | the new arguments are optional, so `{"owner":"x"}` still works; `ERR_TOKEN_LIST` (duplicate or more than 8), `ERR_TTL` (zero or above the max) |
+| `add_signer`, `remove_signer` | change | owner | also requires exactly 1 yoctoNEAR (`ERR_ONE_YOCTO`) |
+| `register_merchant()` payable >= 1 NEAR | change | anyone, once | creates the NEAR bond; the record's storage cost comes out of the deposit, and the 1 NEAR minimum applies to the remaining bond |
+| `add_bond()` payable | change | merchant | NEAR bond only; `ERR_NOT_MERCHANT` |
+| `ft_on_transfer(sender_id, amount, msg)` | change | the token contract | the only token inflow, returns the unused amount |
+| `withdraw_bond(amount, token?)` | change | merchant | `token` optional; pays through a callback; 1 yoctoNEAR |
+| `register_order(order_id, buyer, amount, max_bps, token?, ttl_ms?)` | change | merchant | keyed by `(merchant, order_id)`; 1 yoctoNEAR |
+| `release_expired(merchant, order_id)` | change | anyone | frees an expired reservation |
+| `register_receipt(order_id, signed_text, signature_hex, signer_public_key_hex)` | change | the order's merchant | same arguments; the order is looked up as `(caller, order_id)` |
+| `claim(merchant, order_id, response_b64)` | change | the order's buyer | gains `merchant`; pays through a callback |
+| `storage_deposit(account_id?)`, `storage_withdraw(amount?)`, `storage_balance_of(account_id)` | change / view | anyone / the account | NEP-145-shaped, not full NEP-145 compliance |
+| `on_claim_paid(...)`, `on_withdraw_resolved(...)` | callback | the contract (`#[private]`) | book changes after the transfer result |
+| `get_owner`, `get_signer`, `get_signers` | view | anyone | unchanged |
+| `get_merchant(merchant)` | view | anyone | returns the NEAR bond in the v1 shape |
+| `get_bond(merchant, token?)`, `get_bonds(merchant)` | view | anyone | `get_bonds` lists the NEAR bond and each existing token bond |
+| `get_order(merchant, order_id)`, `get_receipt(merchant, response_hash)`, `preview_claim(merchant, order_id, response_b64)` | view | anyone | gain `merchant`; results carry `token`; `preview_claim` never panics |
+| `get_config()` | view | anyone | `{"api": 2, "owner", "allowed_tokens", "min_order_ttl_ms", "max_order_ttl_ms", "default_order_ttl_ms"}` |
 
-`register_order` checks, in this order: `ERR_ORDER_ID`, `ERR_MAX_BPS`, `ERR_AMOUNT`; `ERR_TOKEN_NOT_ALLOWED` (a `Some` token that is not in the list); `ERR_TTL` (`ttl_ms` below `min_order_ttl_ms` or above 365 days; default 30 days); `ERR_ORDER_EXISTS` for `(merchant, order_id)` only; `ERR_NOT_MERCHANT` (no bond for that `(merchant, token)`); `liability = amount * max_bps / 10000` with checked arithmetic (`ERR_AMOUNT` on overflow) and **`ERR_LIABILITY_ZERO`** when it is 0 (closes the v1 "liability rounds to 0" spam case); `ERR_INSUFFICIENT_FREE_BOND`; then the storage charge (`ERR_STORAGE_BALANCE`).
+`register_order` checks, in order: `ERR_ORDER_ID`, `ERR_MAX_BPS`, `ERR_AMOUNT`; `ERR_TOKEN_NOT_ALLOWED`; `ERR_TTL` (below `min_order_ttl_ms` or above 365 days; default 30 days); `ERR_ORDER_EXISTS` for `(merchant, order_id)`; `ERR_NOT_MERCHANT` when there is no bond for that `(merchant, token)`; `liability = amount * max_bps / 10000` with checked arithmetic (`ERR_AMOUNT` on overflow) and `ERR_LIABILITY_ZERO` when it rounds to 0; `ERR_INSUFFICIENT_FREE_BOND`; then the storage charge (`ERR_STORAGE_BALANCE`).
 
-`register_receipt` extra checks: the order must be `open` (`ERR_ORDER_NOT_OPEN`) and not past `expires_at_ms` (`ERR_ORDER_EXPIRED`), so no state is stored for settled orders. The receipt's storage is charged to the merchant (section 6). A shopper or any other account calling it gets `ERR_NO_ORDER` (it has no order under its own name); `ERR_NOT_ORDER_MERCHANT` is no longer reachable and is dropped from the v2 list.
+`register_receipt` also requires the order to be `open` (`ERR_ORDER_NOT_OPEN`) and unexpired (`ERR_ORDER_EXPIRED`). Its storage is charged to the merchant. Any account without an order under its own name gets `ERR_NO_ORDER`, so `ERR_NOT_ORDER_MERCHANT` is no longer produced.
 
-Claim arithmetic is unchanged (`paid_bps = min(token_bps, max_bps)`, `payout = amount * paid_bps / 10000`, checked) with one addition: a payout of 0 gives `ERR_PAYOUT_ZERO` and nothing moves, because `ft_transfer` of 0 panics and would make the claim fail for ever.
+Claim arithmetic is unchanged, with one addition: a payout of 0 gives `ERR_PAYOUT_ZERO`, because `ft_transfer` of 0 panics and would make the claim fail for ever. The status order in `evaluate` is `claimed` → `ERR_ALREADY_CLAIMED`, `paying` → `ERR_CLAIM_IN_PROGRESS`, `expired` or `now >= expires_at_ms` → `ERR_ORDER_EXPIRED`, then the v1 checks and `ERR_PAYOUT_ZERO`.
 
-`ClaimPreview` gets `token: Option<AccountId>`. The status check order in the shared `evaluate` function is: `claimed` -> `ERR_ALREADY_CLAIMED`; `paying` -> `ERR_CLAIM_IN_PROGRESS`; `expired` or `now >= expires_at_ms` -> `ERR_ORDER_EXPIRED`; then the v1 order (receipt, receipt order, JSON, token, token order) and `ERR_PAYOUT_ZERO`.
-
-## 5. Incoming tokens: `ft_on_transfer`
+## Incoming tokens
 
 ```text
-ft_on_transfer(sender_id: AccountId, amount: U128, msg: String) -> PromiseOrValue<U128>   // returns the UNUSED amount
+ft_on_transfer(sender_id: AccountId, amount: U128, msg: String) -> PromiseOrValue<U128>   // returns the unused amount
 msg for a bond deposit:  {"add_bond":{}}
 ```
 
-Rules:
+The predecessor must be an allowed token, else the full amount is returned and nothing changes. That also covers a user calling `ft_on_transfer` directly.
 
-1. `token = env::predecessor_account_id()`. If `token` is not in `allowed_tokens`, return the full `amount` and change nothing. This also covers a user calling `ft_on_transfer` directly: they are not an allowed token, so nothing is credited.
-2. `sender_id` and `amount` come only from the function arguments (which only the token contract can supply, by rule 1). The msg is parsed into `enum FtMsg { AddBond {} }` with `deny_unknown_fields` on the variant. A msg that carries its own `sender_id`, `amount`, `merchant` or any other field is therefore "unexpected" and is returned. The bond is always credited to `sender_id`; nobody can fund a bond that belongs to someone else.
-3. Anything unexpected returns the full amount, never a panic: unparseable msg, empty msg, unknown variant, msg longer than 256 bytes, `amount == 0`, bond overflow (`checked_add`), or no storage balance for a new bond record. For each case the contract writes a plain log line `REFUND:<reason>` (not an `EVENT_JSON` line) with one of `TOKEN_NOT_ALLOWED`, `BAD_MSG`, `ZERO_AMOUNT`, `OVERFLOW`, `NO_STORAGE`.
-4. On success: `bonds[(sender_id, Some(token))].bond += amount`; if the record is new, its storage is charged to `sender_id`'s storage balance (section 6); return `0`; event `bond_added` with `token`.
-5. Deposits never touch another token's bond or the NEAR bond.
+`sender_id` and `amount` come from the function arguments, which only the token contract can supply. The msg parses into `enum FtMsg { AddBond {} }` with `deny_unknown_fields`, so a msg carrying its own `sender_id`, `amount` or `merchant` is rejected and the bond is always credited to `sender_id`.
 
-The contract has no `ft_on_transfer` path that can reach `register_order`, `claim` or any other method. A new purpose needs a new msg variant and a new design.
+Anything unexpected returns the full amount and never panics: an unparseable or empty msg, an unknown variant, a msg over 256 bytes, `amount == 0`, a bond overflow, or no storage balance for a new bond record. Each writes a plain `REFUND:<reason>` log, not an `EVENT_JSON` line, with one of `TOKEN_NOT_ALLOWED`, `BAD_MSG`, `ZERO_AMOUNT`, `OVERFLOW`, `NO_STORAGE`. On success the bond grows, a new record's storage is charged to `sender_id`, and `bond_added` carries the token.
 
-Accepted risk, to be written in the README: the allow-list is trusted. A token that lies about balances, charges a fee on transfer, rebases or can freeze accounts breaks the books. The allow-list is fixed at init, so adding a token means a new deployment. This is fine for tUSDC (mock) and native USDC.
+The allow-list is trusted. A token that lies about balances, charges a transfer fee, rebases or freezes accounts breaks the books, and since the list is fixed at init, adding a token means a new deployment.
 
-## 6. Storage deposit accounting
+## Storage deposit
 
-**Rule: whoever creates state pays for it, from their own money, measured, not estimated.**
+Whoever creates state pays for it, measured rather than estimated. Each account holds a prepaid storage balance: `storage_deposit(account_id?)` is payable and anyone may fund anyone, `storage_withdraw(amount?)` takes only the available part and needs exactly 1 yoctoNEAR, and `storage_balance_of(account_id)` returns `{total, available}` or null. The first deposit pays for its own record.
 
-- Each account that creates orders or receipts keeps a prepaid **storage balance** in the contract: `storage_deposit(account_id?)` (payable, anyone may fund anyone), `storage_withdraw(amount?)` (the account, only the `available` part; requires exactly 1 yoctoNEAR), `storage_balance_of(account_id) -> {total, available} | null`. The first deposit pays for its own record, so `total` is the deposit minus that cost.
-- Why a prepaid balance and not an attached deposit: the relayer's key is a function-call key and a function-call key cannot attach a deposit, and `ft_on_transfer` carries tokens, not NEAR. A prepaid balance is the only way the relayer can create receipts and the only way a first token bond can pay for its record.
-- Every state-creating call measures `env::storage_usage()` before and after, and charges `(after - before) * env::storage_byte_cost()` to the right account:
+A prepaid balance rather than an attached deposit, because the relayer's function-call key cannot attach one and `ft_on_transfer` carries tokens, not NEAR.
 
-| Call | Creates | Charged to | Source of the money |
-| --- | --- | --- | --- |
-| `register_merchant` | NEAR bond record | the merchant | the attached deposit (so the bond is smaller by that amount) |
-| `ft_on_transfer` add_bond, first time | token bond record | `sender_id` | storage balance; if short, the deposit is returned (rule 3 above) |
-| `register_order` | order | the merchant | storage balance |
-| `register_receipt` | receipt | the merchant (the caller) | storage balance |
-| `storage_deposit`, first time | storage record | the account | the deposit itself |
+Every state-creating call measures `env::storage_usage()` before and after and charges `(after - before) * env::storage_byte_cost()`:
 
-- If the balance is short, change calls panic with `ERR_STORAGE_BALANCE` and nothing is stored (the panic reverts the call). `ft_on_transfer` cannot panic, so it inserts the record, flushes, measures, and removes the record again (flush again) when the balance is short, then returns the full amount.
-- **Implementation trap:** `near_sdk::store` collections cache writes and write them to storage only on `flush()` or when dropped. `env::storage_usage()` is wrong until the touched map is flushed. Every measurement must call `.flush()` on the changed map first. A unit test pins exact charges (section 11, group E) so this cannot regress silently.
-- Nothing is ever deleted (receipts and orders stay), so there is no refund path and the storage balance only goes down, apart from `storage_withdraw` of the unused part.
-- Invariant, with a test: the contract's own free NEAR (the operator's buffer for code storage) never pays for user state. Every byte added by a user call is covered by a matching decrease of that user's storage balance or deposit. (The order's `status` string grows from `open` to `paying` / `claimed` / `expired` after the charge; `register_order` now also charges `STATUS_HEADROOM_BYTES = 3` bytes up front.)
-- The v1 "R4 buffer" (3 NEAR beyond bonds) is no longer needed for user state. The contract still needs its code storage and a few yoctoNEAR per `ft_transfer` (1 yoctoNEAR is attached to each outgoing token transfer and comes from the contract's own balance).
-- Client rule: before creating orders the shop's setup checks `storage_balance_of(merchant).available` against `receipts_per_order * measured receipt cost`; the demo setup deposits 0.5 NEAR (*tune* from the measured live cost; a receipt is about 1 KB, which is about 0.01 NEAR at 10^19 yocto per byte).
+| Call | Creates | Charged to |
+| --- | --- | --- |
+| `register_merchant` | NEAR bond record | the merchant, from the attached deposit |
+| `ft_on_transfer` add_bond, first time | token bond record | `sender_id`; short balance returns the deposit |
+| `register_order` | order | the merchant |
+| `register_receipt` | receipt | the merchant |
+| `storage_deposit`, first time | storage record | the account, from the deposit |
 
-## 7. Outgoing transfers and callbacks
+A short balance makes change calls panic with `ERR_STORAGE_BALANCE` and store nothing. `ft_on_transfer` cannot panic, so it inserts, flushes, measures, removes the record again and returns the full amount.
 
-Every outgoing transfer, token or NEAR, is a promise with a callback, and money records change **only in the callback**, once the result is known.
+`near_sdk::store` collections write to storage only on `flush()`, and `env::storage_usage()` is wrong until then, so every measurement flushes the changed map first. A unit test pins exact charges. Nothing is deleted, so the balance only goes down apart from `storage_withdraw`.
 
-Gas constants: `GAS_FT_TRANSFER = 20 Tgas`, `GAS_CALLBACK = 15 Tgas`. **Measured live (L6, `fixtures/runs/v2-live-run.json`): a paid tUSDC claim burns 2.7 Tgas in `claim`, 1.8 Tgas in `ft_transfer`, 2.2 Tgas in `on_claim_paid` (failed payout 2.7 / 1.5 / 1.8); `withdraw_bond` 2.5 / 1.8 / 1.6. Kept as they are: they are budgets, unused gas is refunded.** `claim` and `withdraw_bond` panic with `ERR_NOT_ENOUGH_GAS` before touching state when `prepaid_gas - used_gas < GAS_FT_TRANSFER + GAS_CALLBACK + 10 Tgas`. The client keeps 100 Tgas.
+The contract's own free NEAR, which covers code storage, never pays for user state. It still needs a few yoctoNEAR per outgoing `ft_transfer`. Before creating orders, the shop checks `storage_balance_of(merchant).available` against its expected receipt cost; the demo deposits 0.5 NEAR, since a receipt is about 1 KB.
 
-Token transfer: `ft_transfer(receiver_id, amount, memo = None)` on the token contract with **exactly 1 yoctoNEAR** attached, `.then(callback)`. NEAR transfer: `Promise::transfer(...)`, `.then(callback)`. Both always have the `then()`.
+## Outgoing transfers
 
-### Claim
+Every transfer, token or NEAR, is a promise with a callback, and the books change only in the callback. Gas budgets: `GAS_FT_TRANSFER = 20 Tgas`, `GAS_CALLBACK = 15 Tgas`. Measured, a paid tUSDC claim burns 2.7 Tgas in `claim`, 1.8 in `ft_transfer` and 2.2 in `on_claim_paid`, about 7.7 in all; unused gas is refunded, so the budgets leave room. `claim` and `withdraw_bond` panic with `ERR_NOT_ENOUGH_GAS` before touching state when fewer than `GAS_FT_TRANSFER + GAS_CALLBACK + 10` Tgas remain.
 
-1. `claim(merchant, order_id, response_b64)`: buyer only (`ERR_NOT_BUYER`), run `evaluate`. Panic on any error (as v1).
-2. Set `order.status = "paying"`. **Do not change `bond`, `reserved` or `paid_out` yet.** The reservation stays in place, so the shop cannot withdraw it and the claim can be put back. While `paying`: `claim` gives `ERR_CLAIM_IN_PROGRESS`, `release_expired` gives `ERR_CLAIM_IN_PROGRESS`.
-3. Send the transfer (to `order.buyer`, `payout`, in the order's token) and `.then(on_claim_paid(merchant, order_id, payout, token_bps, paid_bps, response_hash))`. `claim` returns that promise, so the transaction's final value is the callback's value.
-4. `on_claim_paid` (`#[private]`, never panics on a failed transfer):
-   - If the order is not `paying`, do nothing and return `ok:false, error:"ERR_CALLBACK_STATE"` (no double debit if a callback is ever replayed).
-   - **Transfer succeeded:** `reserved -= liability`, `bond -= payout`, `paid_out += payout`, status `claimed`, `paid`, `paid_bps` set, then emit `promise_claimed` (with `token`). Return `ClaimPreview{ok:true,...}`.
-   - **Transfer failed** (receiver not registered on the token, closed NEAR account, token paused): status back to `open`; `bond`, `reserved` and `paid_out` are exactly as before the claim. Write the plain log `PAYOUT_FAILED:<order_id>` (not an `EVENT_JSON` line). Return `ClaimPreview{ok:false, error:"ERR_PAYOUT_FAILED", ...}`.
-5. The transaction as a whole succeeds in both cases (the callback does not panic, so its state change is kept). **A client must read `result.ok`**; a successful transaction status is not a successful payout. The shopper retries the same `claim` after fixing the cause (registering on the token), as long as the order has not expired.
-6. Money moves only in the callback, so `promise_claimed` exists only for payouts that really happened (events only for succeeded transfers).
+Token transfers call `ft_transfer(receiver_id, amount, memo = None)` with exactly 1 yoctoNEAR attached, then the callback. NEAR transfers use `Promise::transfer` the same way.
 
-### Withdraw
+**Claim.** The buyer runs `evaluate` and the call panics on any error. The order moves to `paying` while `bond`, `reserved` and `paid_out` stay untouched, so the shop cannot withdraw the reservation and the claim can be put back. A second `claim` or a `release_expired` during `paying` gives `ERR_CLAIM_IN_PROGRESS`. Then the transfer is sent and chained to `on_claim_paid`, and `claim` returns that promise.
 
-`withdraw_bond(amount, token?)`: `0 < amount <= bond - reserved` (`ERR_WITHDRAW_EXCEEDS_FREE_BOND`), `ERR_NO_BOND` if the record does not exist. Debit `bond` now (so two quick calls cannot double spend), send the transfer, `.then(on_withdraw_resolved(merchant, token, amount))`. On success emit `bond_withdrawn`. On failure re-credit `bond += amount`, log `WITHDRAW_FAILED:<token>` (plain log), no event. The v1 `bond_withdrawn` event moves from "before the transfer" to "after it succeeded".
+`on_claim_paid` never panics. If the order is not `paying`, it does nothing and returns `ok:false, error:"ERR_CALLBACK_STATE"`. On a successful transfer it moves the money, sets the order `claimed`, emits `promise_claimed` and returns `ok:true`. On a failed transfer the order goes back to `open` with the books exactly as before, a plain `PAYOUT_FAILED:<order_id>` log is written and it returns `ok:false, error:"ERR_PAYOUT_FAILED"`.
 
-### Residual risk
+The transaction succeeds either way, so a client must read `result.ok`. The shopper retries the same claim after fixing the cause, as long as the order has not expired.
 
-If a callback ever ran out of gas, an order would stay `paying`. The gas guard above and a unit test on the guard make this unlikely; there is no owner rescue method on purpose (the owner must not be able to touch money). The README should say so.
+**Withdraw.** `0 < amount <= bond - reserved` (`ERR_WITHDRAW_EXCEEDS_FREE_BOND`), and `ERR_NO_BOND` when the record does not exist. `bond` is debited immediately so two quick calls cannot double spend; on success `bond_withdrawn` fires after the transfer, on failure the bond is re-credited and a plain `WITHDRAW_FAILED:<token>` log is written.
 
-## 8. Order expiry
+There is no owner rescue method, so a callback that ran out of gas would leave an order `paying`. The gas guard and its unit test make that unlikely.
 
-- `register_order` stores `expires_at_ms = now + ttl_ms`. It is part of the order the shopper can read (`get_order`), and the client shows it in the order label and a countdown.
-- At or after `expires_at_ms`: `claim` and `preview_claim` return `ERR_ORDER_EXPIRED`, and `register_receipt` is refused (`ERR_ORDER_EXPIRED`). The boundary is `now >= expires_at_ms`, so there is no overlap.
-- `release_expired(merchant, order_id)`: **anyone** may call it (the effect is fixed by the rules, so no permission is needed, and an automatic keeper bot can call it). Checks: order exists (`ERR_NO_ORDER`); status `open` (`ERR_ORDER_NOT_OPEN` for claimed or already expired, `ERR_CLAIM_IN_PROGRESS` for paying); `now >= expires_at_ms` (`ERR_ORDER_NOT_EXPIRED`). Effect: `reserved -= liability` in that order's token bond, status `expired`, event `order_expired {order_id, merchant, token, released}`. The released amount is free bond again and can be withdrawn.
-- Buyer protection is the TTL: the merchant chooses it, but it cannot be below the contract's `min_order_ttl_ms`, it is visible before the shopper pays attention to the promise, and the relayer's receipt registration is refused once expired. The UI shows the remaining time next to BINDING, and shows `EXPIRED` in the badge after the fact. A promise that was never claimed before its expiry is gone; this is the intended trade (the shop's bond is not locked for ever) and goes into the README.
-- A failed payout puts the order back to `open`. If that happens after `expires_at_ms`, the order can be released at once and the shopper can no longer claim. The client therefore warns when `payout failed` and fewer than 10 minutes remain.
+## Expiry
 
-## 9. NEP-145 registration: who registers whom on the token
+`register_order` stores `expires_at_ms = now + ttl_ms`, which the client shows with the order and as a countdown. At or after it, `claim`, `preview_claim` and `register_receipt` answer `ERR_ORDER_EXPIRED`; the boundary is `now >= expires_at_ms`.
 
-NEP-141 tokens (including tUSDC) refuse `ft_transfer` and `ft_transfer_call` to an account that has no storage on the token. This is the main way a payout fails.
+`release_expired(merchant, order_id)` may be called by anyone, including a keeper bot. It needs an `open`, expired order: `ERR_NO_ORDER`, `ERR_ORDER_NOT_OPEN`, `ERR_CLAIM_IN_PROGRESS`, `ERR_ORDER_NOT_EXPIRED`. It frees `liability` in that token's bond, sets `expired` and emits `order_expired {order_id, merchant, token, released}`.
 
-| Account | Must be registered on the token | Who pays and when | What the client does |
-| --- | --- | --- | --- |
-| The market contract `v2.cbp-sm1110.testnet` | Yes, to receive bonds | Operator, once, right after deploy: `storage_deposit {account_id: <market>, registration_only: true}` with about 0.00125 NEAR (the mock's value; read `storage_balance_bounds` from the token for the real number) | `setup` and `verify` read `storage_balance_of(market)` on the token and stop with a clear message if it is null. The web page hides token orders when the config check fails |
-| Merchant | Yes, it holds the tokens it deposits, and needs it for withdrawals | The merchant, before the first deposit (it cannot hold tokens otherwise) | Setup checks it. A failed withdrawal shows `ERR_WITHDRAW_FAILED` text and the bond is restored |
-| Buyer (shopper) | Yes, to receive a claim | The buyer, or the merchant/operator on the buyer's behalf. The demo setup registers the buyer when it creates the orders (the merchant's own money, which is the "whoever benefits pays" rule for the shop) | Before showing Claim, the client calls `storage_balance_of(buyer)` on the token. If null: the badge keeps BINDING but adds `register on tUSDC first`, with the exact `storage_deposit` command. The client does **not** block the claim button: the contract cannot know, and a failed claim is safe |
-| Relayer / keys | n/a | n/a | The relayer's function-call key cannot attach a deposit, so it cannot register anyone. Setup uses the full-access keys in `~/.near-credentials` through near-cli, never the relayer |
+The TTL is the buyer's protection: the merchant picks it but not below `min_order_ttl_ms`, it is visible before the promise matters, and registration is refused once it passes. A promise never claimed before expiry is gone.
 
-A claim to an unregistered buyer returns `ERR_PAYOUT_FAILED`, leaves the order `open` with the bond unchanged, and can be repeated after registration. That is test L7 in section 12.
+A failed payout returns the order to `open`; if that happens after expiry, it can be released at once, so the client warns when a payout failed with under 10 minutes left.
 
-## 10. Decimals and amounts in the client
+## Token registration
 
-- On chain every amount is a raw `u128` as a decimal string. Nothing on chain knows decimals.
-- A new `app/lib/amount.mjs` has `formatAmount(raw, decimals, {maxFraction})` and `parseAmount(text, decimals)`, both BigInt only (no `Number`), exported also to `web/app.js` (the web page cannot import from `app/`: the file will be served or copied under `web/`, decided at build time, with a test that both copies are identical or that one file is served at both paths).
-- `decimals` and `symbol` come from the token's `ft_metadata` (NEP-148), read once per token over RPC and cached; `/api/config` returns `tokens: [{id, symbol, decimals}]` for every token in the contract's `get_config().allowed_tokens`. The client rejects a token whose `decimals` is not an integer 0..=36.
-- NEAR keeps its present display (`yoctoToNear`, 3 decimals) so the v1 replay and every v1 test stay as they are. tUSDC shows as `4 tUSDC` / `0.000001 tUSDC`; trailing zeros are removed.
-- The bot prompt carries the order total in the order's currency. For a NEAR order the system prompt bytes stay **identical** to today (the S1 request hash is pinned by `app/test/prompt.test.mjs`); for a token order it says `total 20 tUSDC`. The promise token grammar `PROMISE|refund|order=...|bps=...` does not change, because it carries a ratio, not an amount.
+NEP-141 tokens refuse transfers to an account with no storage on the token, which is the main way a payout fails.
 
-## 11. Rust test list (`contract-v2/src/tests.rs`)
+| Account | Registered on the token | Who pays |
+| --- | --- | --- |
+| The market contract | yes, to receive bonds | operator, once after deploy: `storage_deposit {registration_only: true}` with about 0.00125 NEAR; `setup` and `verify` stop with a clear message when `storage_balance_of` is null, and the page hides token orders |
+| Merchant | yes, it holds the tokens it deposits | the merchant, before the first deposit; a failed withdrawal shows `ERR_WITHDRAW_FAILED` and the bond is restored |
+| Buyer | yes, to receive a claim | the buyer or the merchant on their behalf; the demo setup registers the buyer while creating the orders |
+| Relayer keys | n/a | cannot attach a deposit, so setup uses the full-access keys in `~/.near-credentials` through near-cli |
 
-Rules: no v1 test is deleted or loosened. All 16 v1 tests are carried over: the 12 in `tests.rs` are ported with the same assertions, the 4 in `parse.rs` come with the copied file. The only change is the new argument (`claim(merchant, ...)`, `get_order(merchant, ...)` and so on, and `ERR_NO_ORDER` instead of `ERR_NOT_ORDER_MERCHANT` in the shopper-registers-receipt test, with the reason written in a comment). The v1 crate keeps running its own 16. Every new test below must fail on the code that does not have the feature (the build step checks this by temporarily removing the feature or its guard, and records which tests failed).
+Before showing Claim, the client checks `storage_balance_of(buyer)`; if null it keeps BINDING and adds `register on tUSDC first` with the exact command, without blocking the button. A claim to an unregistered buyer returns `ERR_PAYOUT_FAILED`, leaves the order `open` with the bond unchanged, and can be repeated after registration.
 
-Callbacks are tested by calling `on_claim_paid` / `on_withdraw_resolved` directly after `testing_env!` with the promise result set to `Successful` or `Failed` (the builder confirms the exact macro form for near-sdk 5.30.1) and with the predecessor equal to the contract. Outgoing promises are checked with `get_created_receipts()` (action type, receiver, method, args, deposit, gas).
+## Amounts in the client
 
-**A. Ported v1 tests (12 from `tests.rs` + 4 from `parse.rs` = 16):** `honest_claim_pays_20_percent`, `injection_is_clipped_to_max_bps`, `tampered_bytes_have_no_receipt`, `receipt_for_other_order_rejected`, `edited_signed_text_fails_signature`, `shopper_cannot_register_receipt`, `only_buyer_can_claim`, `reserved_bond_cannot_be_withdrawn`, `expired_signer_rejected`, `real_near_ai_ed25519_receipt_registers`, `real_near_ai_one_changed_byte_has_no_receipt`, `real_near_ai_receipt_with_edited_hash_fails`, plus the 4 tests in `parse.rs` (copied file, copied tests). That is the 16 of the v1 run (12 in `tests.rs`, 4 in `parse.rs`); the one test in `ecdsa.rs` only builds with the `ecdsa` feature, is not in the 16, and is copied with its file. The two claim tests now run the callback with `Successful` before asserting bond and reserved.
+Amounts on chain are raw `u128` decimal strings; nothing on chain knows decimals. `app/lib/amount.mjs` provides `formatAmount(raw, decimals, {maxFraction})` and `parseAmount(text, decimals)`, both BigInt only, also served to `web/`.
 
-**B. Init and allow-list**
-1. `new` without tokens: NEAR flow works, `get_config().allowed_tokens` is empty.
-2. `new` with `[tusdc.testnet]`: stored and returned.
-3. Duplicate token and 9 tokens: `ERR_TOKEN_LIST`.
-4. `min_order_ttl_ms` zero or above the max: `ERR_TTL`.
-5. `get_config` has `api == 2`.
+`decimals` and `symbol` come from the token's `ft_metadata` (NEP-148), read once per token and cached; `/api/config` returns `tokens: [{id, symbol, decimals}]` for every allowed token, and the client rejects a token whose `decimals` is not 0..=36. NEAR keeps its present display so the v1 replay is unchanged. The promise grammar carries a ratio, not an amount, so it does not change; only the prompt mentions the currency (`total 20 tUSDC`).
 
-**C. `ft_on_transfer` (all with a registered storage balance unless the test says otherwise)**
-1. Valid `{"add_bond":{}}` from the allowed token: creates the bond for `sender_id`, returns `0`, emits `bond_added` with the token.
-2. A second deposit adds to the bond; `reserved` and `paid_out` stay.
-3. **Wrong token:** the predecessor is `evil.testnet`, not in the list: returns the full amount, no state change (`storage_usage` equal before and after), no event.
-4. **Direct call by a user:** predecessor `mallory.testnet` calls `ft_on_transfer("victim.testnet", 1000, ...)`: full refund, no bond for anyone.
-5. **Wrong msg**, each returns the full amount and changes nothing: empty string, `not json`, `{}`, `{"pay_invoice":{}}`, `{"add_bond":1}`, `{"add_bond":{},"x":1}`, a 300 byte msg.
-6. **Msg cannot choose the beneficiary or the amount:** `{"add_bond":{"sender_id":"victim.testnet","amount":"999"}}` and `{"add_bond":{"merchant":"victim.testnet"}}` are refused (unknown fields); and a valid msg credits `sender_id` and the `amount` argument.
-7. `amount == 0`: returns `0`, no bond record created.
-8. No storage balance for a first deposit: full refund, and `storage_usage` is exactly what it was (the insert is undone).
-9. Overflow (`bond` near `u128::MAX` plus another deposit): full refund, bond unchanged.
-10. Two allowed tokens: separate bonds; a deposit in one does not change the other or the NEAR bond.
-11. `get_bonds` lists the NEAR bond and each existing token bond, and nothing for a token never deposited.
+## Compatibility with v1
 
-**D. Orders with tokens**
-1. `register_order` with an unlisted token: `ERR_TOKEN_NOT_ALLOWED`.
-2. No bond for that token: `ERR_NOT_MERCHANT`.
-3. Reserves only in the chosen token's bond; the NEAR bond's `reserved` stays 0.
-4. `ERR_INSUFFICIENT_FREE_BOND` is judged against the token bond, not the NEAR bond.
-5. The order and the receipt both store `token` and `amount` (`order_amount`), and `register_order`'s event carries them.
-6. NEAR order and tUSDC order for the same merchant at the same time keep separate `reserved`.
-7. `liability` of 0 (amount 1, max_bps 1): `ERR_LIABILITY_ZERO`.
-8. `amount * max_bps` overflow: `ERR_AMOUNT`, no panic from arithmetic.
-9. Existing v1 NEAR call `register_order(order_id, buyer, amount, max_bps)` (no new arguments) works and uses the default TTL.
-10. `register_receipt` for a `claimed`, `paying` or `expired` order: `ERR_ORDER_NOT_OPEN` / `ERR_ORDER_EXPIRED`.
+Kept: every NEAR-path method name, the token grammar, the v1 error strings, the `botpromise` event standard, the signed-text and signature checks, and the `ClaimPreview` shape with one added field.
 
-**E. Storage accounting**
-1. `storage_deposit` credits `total = deposit - own record cost`; `storage_balance_of` for an unknown account is null.
-2. A third party can fund a merchant's balance.
-3. `register_order` lowers `available` by exactly `(storage_usage_after - storage_usage_before) * storage_byte_cost` (pins the flush trap).
-4. `register_receipt` does the same and charges the merchant, not the contract.
-5. Short balance: `register_order` and `register_receipt` panic with `ERR_STORAGE_BALANCE` and the state is unchanged (`storage_usage` equal, no reservation).
-6. `storage_withdraw` above `available`: panic; exactly `available`: works; the used part stays.
-7. `register_merchant`: `bond = deposit - cost of the record`; a deposit of exactly 1 NEAR now fails with `ERR_BOND_TOO_SMALL` because the record cost comes out of it (documented difference, pins the rule).
-8. Spam loop: with `available` for 5 orders, order 6 fails, and the sum of all decreases equals the sum of all `storage_usage` growth times the byte cost. The contract's own balance accounting (`account_balance` minus the sum of bonds minus the sum of storage balances) does not shrink beyond code storage.
-9. First token bond record charged to `sender_id` only.
+Changed on purpose:
 
-**F. Order-id namespace**
-1. Two merchants register the same `order_id`: both succeed, separate `reserved`.
-2. A merchant registers an id that another merchant already took: no `ERR_ORDER_EXISTS` (the v1 squatting case).
-3. The same merchant registering the same id twice: `ERR_ORDER_EXISTS`.
-4. A receipt registered by merchant A (same response hash) does not satisfy a claim on merchant B's order: `ERR_NO_RECEIPT_FOR_BYTES`; and B registering the same signed text works (`(merchant, hash)` key), so a copy of A's public args cannot block B.
-5. `claim` with the wrong `merchant` argument: `ERR_NO_ORDER`; the buyer of A's order cannot claim B's order with the same id.
-6. `register_receipt` by a non-merchant: `ERR_NO_ORDER`.
-
-**G. Expiry**
-1. Default TTL is 30 days, a custom `ttl_ms` is stored, below `min_order_ttl_ms` and above 365 days give `ERR_TTL`.
-2. Claim before expiry works; at exactly `expires_at_ms` it gives `ERR_ORDER_EXPIRED`; `preview_claim` says the same; `register_receipt` after expiry is refused.
-3. `release_expired` before expiry: `ERR_ORDER_NOT_EXPIRED`.
-4. After expiry, called by a third account: `reserved` falls by `liability` in the right token bond only, status `expired`, one `order_expired` event, and `withdraw_bond` can now take the released amount.
-5. Second release: `ERR_ORDER_NOT_OPEN`. Release of a claimed order: `ERR_ORDER_NOT_OPEN`. Release of a `paying` order: `ERR_CLAIM_IN_PROGRESS`.
-6. A claimed order's reservation is not released twice (`reserved` never goes below 0; test with checked arithmetic).
-
-**H. Claim and payout**
-1. Token order: `claim` creates exactly one `ft_transfer` receipt to the token contract, args `receiver_id == buyer`, `amount == payout`, deposit `1`, gas `GAS_FT_TRANSFER`, followed by a callback with `GAS_CALLBACK`. State right after the claim: status `paying`, `bond`, `reserved`, `paid_out` unchanged, **no `promise_claimed` event**.
-2. NEAR order: the receipt is a `Transfer` action followed by the same callback.
-3. Callback with `Successful`: `bond -= payout`, `reserved -= liability`, `paid_out += payout`, status `claimed`, exactly one `promise_claimed` event with the token, returned preview `ok == true`.
-4. **Callback failure** (`Failed`, token order, the unregistered-receiver case): status `open`, `bond`, `reserved`, `paid_out` equal to the values before the claim, **no `EVENT_JSON` log at all**, returned `ok == false` and `error == ERR_PAYOUT_FAILED`.
-5. The same for a NEAR order (closed account).
-6. **Retry after a failure:** claim again succeeds and (with `Successful`) pays once.
-7. **Double claim:** a second `claim` after success: `ERR_ALREADY_CLAIMED` and no transfer receipt is created. A second `claim` while `paying`: `ERR_CLAIM_IN_PROGRESS`, no transfer receipt.
-8. Callback called twice (second time after the order is `claimed`) or on an order that is not `paying`: no state change, `ERR_CALLBACK_STATE`, no event. This pins no double debit.
-9. Callback not called by the contract itself: panics (`#[private]`).
-10. `ERR_NOT_ENOUGH_GAS` when prepaid gas is below the guard, and the state is unchanged.
-11. `ERR_PAYOUT_ZERO` (amount 100 raw units, token says `bps=1`): nothing moves, order stays `open`.
-12. Payout maths in 6 decimals: 20 tUSDC order (`20_000_000`), `max_bps` 3000, honest token `bps=2000` -> payout `4_000_000`; injection `bps=10000` -> `6_000_000`.
-13. A buyer that is not `order.buyer`: `ERR_NOT_BUYER` (unchanged); a different buyer cannot trigger the callback.
-
-**I. Withdraw**
-1. Token withdraw of the free part: debits `bond` at once, creates an `ft_transfer` (receiver the merchant, deposit 1) and a callback.
-2. Callback `Successful`: one `bond_withdrawn` event with the token. Callback `Failed`: `bond` restored, no event.
-3. Two quick withdrawals cannot exceed the free bond (second sees the lowered bond).
-4. Above free bond: `ERR_WITHDRAW_EXCEEDS_FREE_BOND`; reserved part of a token order cannot be withdrawn; no bond for the token: `ERR_NO_BOND`; a v1 call without `token` still withdraws NEAR.
-5. NEAR withdraw uses the same callback and restores on failure.
-
-**J. Events and views**
-1. Every event has `standard "botpromise"`, `version "1.1.0"`, the new `token` field (null for NEAR), and is valid JSON after `EVENT_JSON:`.
-2. `get_merchant` still returns `{bond, reserved, paid_out}` for the NEAR bond; `get_bond` and `get_order(merchant, id)`, `get_receipt(merchant, hash)` shapes are pinned with a JSON snapshot.
-3. `preview_claim` for an unknown order or merchant: `ERR_NO_ORDER`, never panics, including for every error path above.
-
-Commands: `npm run test:contract:v2`, and `npm run test:contract` for v1 (unchanged, 16 tests).
-
-## 12. Client tests and the live testnet runs
-
-### Client tests (`node --test`, no network, no keys)
-
-The v1 client tests stay as they are and keep passing. New files unless noted.
-
-- `app/test/amount.test.mjs`: `formatAmount` and `parseAmount` for 6 decimals (`4000000` -> `4`, `1` -> `0.000001`, `0` -> `0`, `1500000` -> `1.5`, `10^30`) and 24 decimals; `parseAmount` rejects `1.0000001`, `-1`, `1e3`, `''`, `' 1'`, `0x10`, `.5`; round trip for random values; no float use (a value above 2^53 stays exact).
-- `app/test/token.test.mjs`: `ftMetadata` through a stub provider (symbol, decimals, rejects bad decimals); `storageBalanceOf` null means unregistered; `buildAddBondMsg()` is exactly `{"add_bond":{}}`; `ftTransferCallArgs` (receiver, amount as string, msg as a string, 1 yocto, gas); the registration hint text names the token and the account.
-- `app/test/api-detect.test.mjs`: `get_config` returns `api: 2` -> v2; `MethodNotFound` -> v1; a network error or any other error is thrown, **not** read as v1.
-- `app/test/relayer.test.mjs` (additions): v2 `get_order` is called with `{merchant, order_id}` and v1 with the old arguments; a token order puts `total 20 tUSDC` into the prompt, the NEAR order bytes and S1 request hash are unchanged (`prompt.test.mjs` keeps its pins and gets one new pinned tUSDC case); `handleClaim` with `result.ok === true` is a normal success; with `result.ok === false` and `ERR_PAYOUT_FAILED` it throws a 502 `ERR_PAYOUT_FAILED` with the tx hash and the registration hint, `claims.log` gets an error row (not a success row), and a second call is allowed (retry); `ERR_ORDER_EXPIRED`, `ERR_CLAIM_IN_PROGRESS` map to HTTP 400 with their code; `errCode` reads the new strings; an expired order refuses `handleChat` (no NEAR AI call, no receipt).
-- `app/test/server.test.mjs` (additions): `/api/config` has `contract_api`, `tokens: [{id,symbol,decimals}]`, per-order `token`, and still no keys; the v1 shape is unchanged for a v1 config.
-- `app/test/web-*.test.mjs` (additions, same fake `document` style): `rpcView` sends `merchant` for v2; `badgeText` shows `BINDING · claimable 4 tUSDC` and the cap text with the token; `EXPIRED` and `ERR_PAYOUT_FAILED` badges; the unregistered-buyer line; the bond meter shows a NEAR row and a tUSDC row; the expiry countdown; `orderLabel` shows token and amount; the v1 replay transcript still renders exactly as before.
-- `app/test/verify-rpc.test.mjs` / `verify-trust.test.mjs` (additions): `verify` against a stub v2 contract passes `merchant`, prints token and amount and checks the token is in `get_config().allowed_tokens`; against a v1 stub it behaves as today; `npm run verify:fixtures` ends in the same last line as today.
-- `app/test/replay.test.mjs` / `record-transcript.test.mjs` (additions): a `replay/v2` transcript (adds `token`, token metadata and the payout-failed step) loads; the v1 transcript still loads; the recorder writes only successful payouts as `claim` steps and the failed one as a `claim-failed` step.
-- `app/test/demo-setup.test.mjs` (new): `bash -n` on the v2 setup script, and a `DRY_RUN=1` run that prints the exact commands in the right order (storage deposit, token bond with `ft_transfer_call`, token registration of the buyer, orders with `token` and `ttl_ms`) without sending anything and without reading any secret.
-
-### Live testnet runs (recorded in `fixtures/runs/v2-live-run.json`)
-
-Each run records the tx hash, the explorer link and the exact result; a failure is recorded as a failure.
-
-- **L1** Create `v2.cbp-sm1110.testnet`, fund it, deploy, `new` with `[$TOKEN_ID]`; `get_config`; record the wasm size and sha256. Register the market on the token; add the TEE signer (`add_signer`) and the v2 function-call keys.
-- **L2** Merchant `storage_deposit`, then `ft_transfer_call` of tUSDC with `{"add_bond":{}}`: `get_bond` and the token `ft_balance_of` of the market and the merchant before and after.
-- **L3 Wrong msg:** `ft_transfer_call` with `""` and with `{"bogus":1}`: the transaction succeeds, the sender's token balance is the same afterwards, `get_bonds` unchanged.
-- **L4 Wrong token:** (a) `ft_on_transfer` called directly by `cbp-bob-sm1110.testnet`: no credit. (b) if the operator has a second mock token, `ft_transfer_call` with it: refunded in full.
-- **L5 No storage balance:** a first token bond from an account without storage balance is refunded in full.
-- **L6 Token order, chat, claim:** `register_order` (20 tUSDC, `max_bps` 3000, TTL 30 min) -> real NEAR AI chat -> `register_receipt` -> `claim` with a registered buyer: `ft_balance_of(buyer)` rises by `4000000` (honest) and the order is `claimed`. Gas burnt of `claim` and the callback are written down and the constants in section 7 are corrected.
-- **L7 Unregistered receiver:** an order for `cbp-bob-sm1110.testnet`: `claim` -> tx succeeds with `ok:false` `ERR_PAYOUT_FAILED`, `get_order` is `open`, `get_bond` unchanged, no `promise_claimed` log. Then register bob on the token and `claim` again: paid. Then `claim` a third time: `ERR_ALREADY_CLAIMED`, balance unchanged.
-- **L8 Injection cap in tUSDC:** the naive bot's `bps=10000` pays `6000000` for the 20 tUSDC / 30% order.
-- **L9 Withdraw:** `withdraw_bond` of the free token part: merchant's token balance rises, `get_bond` falls. A withdraw to a merchant that unregistered on the token (if easy to arrange) is restored; otherwise covered by unit tests only, and the README says which.
-- **L10 Expiry:** `register_order` with TTL 2 minutes, wait, `release_expired` by a third account (`cbp-bob-sm1110.testnet`): `reserved` falls and `order_expired` is in the logs; `claim` -> `ERR_ORDER_EXPIRED`; `withdraw_bond` takes the released amount.
-- **L11 Storage accounting:** `storage_balance_of(merchant)` before and after a `register_order` and a `register_receipt`; an order without storage balance fails with `ERR_STORAGE_BALANCE`; five orders in a row lower only the merchant's storage balance, and the contract account's `view-account` shows no loss beyond the deploy.
-- **L12 Namespace:** two accounts register the same `order_id` (alice becomes a second merchant with a 1 NEAR bond); a claim with the wrong `merchant` fails.
-- **L13 NEAR regression:** the full v1 demo on v2: `register_merchant`, order, chat, receipt, claim (0.4 NEAR), the cap beat (0.6 NEAR), tamper (`ERR_NO_RECEIPT_FOR_BYTES`), edited reply (`ERR_BAD_SIGNATURE`), double claim.
-- **L14** `npm run verify` on a v2 bundle (new fixtures under `fixtures/live/`), `npm run verify:fixtures` for the old ones (must still pass), a new `fixtures/replay/transcript-v2.json`, and `npm run test:js` + both `cargo test` counts, copied from the real output.
-
-## 13. Compatibility and deviations from `docs/INTERFACES.md`
-
-Kept: all NEAR-path method names (`add_signer`, `remove_signer`, `register_merchant`, `add_bond`, `withdraw_bond`, `register_order`, `register_receipt`, `claim`, the views), the token grammar, the error strings of section 6, the event standard `botpromise`, the frozen signed-text and signature checks, and the `claim` result shape (`ClaimPreview`, one added field).
-
-Changed (each is a deliberate break of the v1 interface):
-
-1. `claim`, `preview_claim`, `get_order`, `get_receipt` take `merchant` (order ids and receipts are per merchant).
-2. `register_merchant`: the record's storage cost comes out of the deposit.
-3. `claim` pays through a callback: `promise_claimed` is emitted when the money moved, not when `claim` was called, and a successful transaction can carry `ok:false`.
-4. `bond_withdrawn` is emitted after the transfer succeeds.
-5. `ERR_NOT_ORDER_MERCHANT` is no longer produced; a non-merchant gets `ERR_NO_ORDER`.
-6. Event `version` becomes `1.1.0`; every event gains `token`.
-7. New errors: `ERR_TOKEN_LIST`, `ERR_TTL`, `ERR_TOKEN_NOT_ALLOWED`, `ERR_NO_BOND`, `ERR_LIABILITY_ZERO`, `ERR_STORAGE_BALANCE`, `ERR_ORDER_NOT_OPEN`, `ERR_ORDER_EXPIRED`, `ERR_ORDER_NOT_EXPIRED`, `ERR_CLAIM_IN_PROGRESS`, `ERR_PAYOUT_ZERO`, `ERR_PAYOUT_FAILED` (value of the callback, not a panic), `ERR_CALLBACK_STATE`, `ERR_NOT_ENOUGH_GAS`.
+1. `claim`, `preview_claim`, `get_order` and `get_receipt` take `merchant`.
+2. `register_merchant` takes the record's storage cost out of the deposit.
+3. `claim` pays through a callback, so `promise_claimed` means the money moved and a successful transaction can carry `ok:false`.
+4. `bond_withdrawn` fires after the transfer succeeds.
+5. A non-merchant calling `register_receipt` gets `ERR_NO_ORDER`, not `ERR_NOT_ORDER_MERCHANT`.
+6. Event `version` is `1.1.0` and every event gains `token`.
+7. New errors: `ERR_TOKEN_LIST`, `ERR_TTL`, `ERR_TOKEN_NOT_ALLOWED`, `ERR_NO_BOND`, `ERR_LIABILITY_ZERO`, `ERR_STORAGE_BALANCE`, `ERR_ORDER_NOT_OPEN`, `ERR_ORDER_EXPIRED`, `ERR_ORDER_NOT_EXPIRED`, `ERR_CLAIM_IN_PROGRESS`, `ERR_PAYOUT_ZERO`, `ERR_PAYOUT_FAILED`, `ERR_CALLBACK_STATE`, `ERR_NOT_ENOUGH_GAS`.
 8. New order statuses `paying` and `expired`.

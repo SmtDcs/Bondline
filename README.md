@@ -1,12 +1,12 @@
 # claimable-bot-promises
 
-When a shop's AI support bot promises a refund, the customer can collect it from a bond the shop locked on NEAR. The bot's replies are signed inside a NEAR AI TEE, and a NEAR contract checks the signature, reads the promise, and pays it out, capped by a limit the shop set.
+A shop's AI support bot promises a refund; the customer collects it from a bond the shop locked on NEAR. Replies are signed inside a NEAR AI TEE, and a NEAR contract checks the signature, reads the promise and pays it out, capped by a limit the shop set.
 
 Runs on NEAR testnet. Not audited.
 
 ![A capped promise claimed in tUSDC on testnet](docs/screenshots/live-v2-claimed.png)
 
-**Site:** https://smtdcs.github.io/claimable-bot-promises/
+Site: https://smtdcs.github.io/claimable-bot-promises/
 
 ## Quick start
 
@@ -18,14 +18,11 @@ npm run verify:fixtures   # checks every recorded receipt offline
 npm run demo:replay:v2    # open http://127.0.0.1:8787/?offline=1
 ```
 
-The replay serves a recorded testnet run. Nothing is sent to the chain.
+The replay serves a recorded testnet run and sends nothing to the chain.
 
 ## How it works
 
-1. The bot ends a promise with a fixed token line, e.g. `PROMISE|refund|order=A123-11|bps=2000`.
-2. NEAR AI signs `model:sha256(request):sha256(response)` inside the TEE.
-3. The receipt is registered on the contract, which runs `env::ed25519_verify` against a signer key registered with the sha256 of its TDX/GPU attestation record.
-4. `claim` re-hashes the reply bytes, parses the token and pays `min(bps, max_bps) × order amount` from the shop's bond, once per order.
+The bot ends a promise with a token line, e.g. `PROMISE|refund|order=A123-11|bps=2000`. NEAR AI signs `model:sha256(request):sha256(response)` inside the TEE. The shop's server registers the receipt, and the contract verifies it with `env::ed25519_verify` against a signer key registered with the sha256 of its attestation record. `claim` re-hashes the reply bytes, parses the token and pays `min(bps, max_bps) × order amount` from the bond, once per order.
 
 The cap is reserved from the bond when the order is created, so the shop can't withdraw it before the order expires. Receipts can't be deleted. Bonds can be in NEAR or an allow-listed NEP-141 token.
 
@@ -45,7 +42,7 @@ Full diagram and request flow: [docs/HACKATHON.md](docs/HACKATHON.md#how-it-work
 | v2 | `v2.cbp-sm1110.testnet` | the shop; NEP-141 bonds, order expiry |
 | v1 | `cbp-sm1110.testnet` | the shop; NEAR bonds only |
 
-On v1 and v2 a shop can avoid a promise by not registering it. v3 closes that: the shop's server signs each request it sends to NEAR AI with a shop key whose public key is stored on the order, and the contract only accepts customer-registered replies whose request carries a valid signature for that order and buyer. Requests the customer sent to NEAR AI directly, or signed for another order or buyer, are refused. v3 is deployed with no access keys and a separate owner account (deploy + init `E3KPBrfukGG9aaArZSWBuJP2TwyQ5wDN865hWN5AfB77`, key deleted `FNSQ8B9tLswCisGMvjfCuY9ktJ1XnJf73DB6DUjK39cn`). Design and trade-offs: [docs/V3.md](docs/V3.md).
+On v1 and v2 a shop can avoid a promise by not registering it. v3 closes that: the shop's server signs each request it sends to NEAR AI with a shop key stored on the order, and the contract accepts a customer-registered reply only if its request carries a valid signature for that order and buyer. Requests the customer sent directly, or signed for another order or buyer, are refused. v3 has no access keys and a separate owner. Design and trade-offs: [docs/V3.md](docs/V3.md).
 
 ## Numbers
 
@@ -75,24 +72,16 @@ npm run test:contract:v3
 npm run test:token
 ```
 
-Running live needs your own testnet accounts and a NEAR AI Cloud API key: see [docs/DEPLOY.md](docs/DEPLOY.md), then `npm run dev`.
+Running live needs your own testnet accounts and a NEAR AI Cloud key: see [docs/DEPLOY.md](docs/DEPLOY.md), then `npm run dev`.
 
-| Path | Contents |
-| --- | --- |
-| `contract-v3/`, `contract-v2/`, `contract/` | market contracts (Rust, near-sdk 5.30.1) |
-| `token/` | tUSDC, a testnet mock NEP-141 token |
-| `app/` | shop server, client libraries, `verify` and scripts |
-| `web/` | demo app (plain ES modules) |
-| `site/` | project site (Astro) |
-| `fixtures/` | recorded receipts, attestation records, runs |
-| `docs/` | design notes and reference |
+`contract-v3/`, `contract-v2/` and `contract/` hold the market contracts (Rust, near-sdk 5.30.1); `token/` the mock tUSDC; `app/` the shop server, client libraries, `verify` and scripts; `web/` the demo app (plain ES modules); `site/` the Astro project site; `fixtures/` recorded receipts, attestation records and runs; `docs/` design notes.
 
 ## Limitations
 
 - Testnet only; tUSDC has no value.
 - v1 and v2 accounts each hold a full-access key, so the deployer could redeploy them. v3 has no keys.
 - Attestation is verified off chain by `npm run attest`; only the record's hash is on chain.
-- The shop sets each order's expiry. A promise must be claimed before it.
+- The shop sets each order's expiry, and a promise must be claimed before it.
 - Claiming publishes the reply bytes on chain.
 - On v3 the shop's server is still the only source of the exact reply bytes; a server that withholds them can't be forced to hand them over.
 - The current TEE signer expires 2026-11-30 10:45 UTC and must be renewed for new receipts.
@@ -101,17 +90,11 @@ Details: [docs/V3.md](docs/V3.md#trust-on-v3), [docs/DETAILS.md](docs/DETAILS.md
 
 ## Docs
 
-- [DETAILS.md](docs/DETAILS.md): verify tool, replay, deployments, contract surfaces
-- [V3.md](docs/V3.md): customer-registered receipts
-- [STABLECOIN.md](docs/STABLECOIN.md): v2 design (NEP-141 bonds, storage, expiry)
-- [INTERFACES.md](docs/INTERFACES.md): v1 interface reference
-- [DEPLOY.md](docs/DEPLOY.md): deploy your own copy
-- [PROMPT-TESTS.md](docs/PROMPT-TESTS.md): bot prompt tests
-- [HACKATHON.md](docs/HACKATHON.md): judge walkthrough, demo script, trust boundaries
+[DETAILS.md](docs/DETAILS.md) covers the verify tool, replay, deployment and recorded runs; [V3.md](docs/V3.md) the customer-registered receipts; [STABLECOIN.md](docs/STABLECOIN.md) the v2 design; [INTERFACES.md](docs/INTERFACES.md) the v1 interface; [DEPLOY.md](docs/DEPLOY.md) deploying your own copy; [PROMPT-TESTS.md](docs/PROMPT-TESTS.md) the bot prompt tests; and [HACKATHON.md](docs/HACKATHON.md) the judge walkthrough, demo script and trust boundaries.
 
 ## Credits
 
-Built for NEAR HACKATHON (November 2026). The signature-check approach follows [tee-receipts](https://github.com/tmdry4530/tee-receipts) (MIT); one of its ECDSA receipts is used as a test vector.
+Built for NEAR HACKATHON (November 2026). The signature-check approach follows [tee-receipts](https://github.com/tmdry4530/tee-receipts) (MIT); one of its ECDSA receipts is a test vector.
 
 Written with AI coding assistants (Claude) under my direction; every change was checked with the test suites and on testnet. The demo bot is NEAR AI Cloud `z-ai/glm-5.3-flash`.
 
