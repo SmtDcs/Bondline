@@ -1,4 +1,4 @@
-//! Claimable bot promises v3: everything v2 does (NEP-141 bonds, measured storage accounting, per-merchant order ids,
+//! Bondline v3: everything v2 does (NEP-141 bonds, measured storage accounting, per-merchant order ids,
 //! order expiry, callbacks that put the books back when a transfer fails) plus the CUSTOMER path:
 //! `register_receipt_as_buyer` lets the order's buyer register the TEE-signed reply themselves, and accepts it only if
 //! the request bytes carry the shop's per-request authorization (an ed25519 signature by the shop-auth key that was

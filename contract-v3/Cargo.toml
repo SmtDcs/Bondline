@@ -2,7 +2,7 @@
 name = "bot-promises-v3"
 version = "0.3.0"
 edition = "2021"
-repository = "https://github.com/SmtDcs/claimable-bot-promises"
+repository = "https://github.com/SmtDcs/Bondline"
 
 [lib]
 name = "bot_promises_v3"

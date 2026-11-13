@@ -1,4 +1,6 @@
-# claimable-bot-promises
+![Bondline](docs/brand/bondline-banner.png)
+
+# Bondline
 
 A shop's AI support bot promises a refund; the customer collects it from a bond the shop locked on NEAR. Replies are signed inside a NEAR AI TEE, and a NEAR contract checks the signature, reads the promise and pays it out, capped by a limit the shop set.
 
@@ -6,7 +8,7 @@ Runs on NEAR testnet
 
 ![A capped promise claimed in tUSDC on testnet](docs/screenshots/live-v2-claimed.png)
 
-Site: https://smtdcs.github.io/claimable-bot-promises/
+Site: https://smtdcs.github.io/Bondline/
 
 ## Quick start
 

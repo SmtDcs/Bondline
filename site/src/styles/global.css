@@ -137,11 +137,8 @@ h3 { font-size: 1.25rem; font-weight: 500; line-height: 1.25; letter-spacing: -0
 /* header */
 .header { position: sticky; top: 0; z-index: 20; height: var(--hh); background: rgba(10, 10, 10, 0.88); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .header .wrap { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 var(--pad); }
-.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 500; font-size: 15px; letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; }
-.brand i { width: 14px; height: 14px; flex: none; background:
-  linear-gradient(var(--fg), var(--fg)) 0 0 / 4px 4px no-repeat, linear-gradient(var(--fg), var(--fg)) 5px 0 / 4px 4px no-repeat, linear-gradient(var(--fg), var(--fg)) 10px 0 / 4px 4px no-repeat,
-  linear-gradient(var(--fg), var(--fg)) 0 5px / 4px 4px no-repeat, linear-gradient(var(--fg), var(--fg)) 10px 5px / 4px 4px no-repeat,
-  linear-gradient(var(--fg), var(--fg)) 0 10px / 4px 4px no-repeat, linear-gradient(var(--fg), var(--fg)) 5px 10px / 4px 4px no-repeat, linear-gradient(var(--dim), var(--dim)) 10px 10px / 4px 4px no-repeat; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 500; font-size: 15px; letter-spacing: 0.01em; text-decoration: none; white-space: nowrap; }
+.brand-mark { width: 15px; height: 22px; flex: none; display: block; }
 .nav { display: flex; gap: 4px; }
 .nav a { font-size: 14px; color: var(--mut); text-decoration: none; padding: 8px 10px; position: relative; transition: color 0.2s var(--ease); }
 .nav a:hover, .nav a[aria-current] { color: var(--fg); }

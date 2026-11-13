@@ -1,4 +1,4 @@
-# NEAR Hackathon submission notes
+# Bondline — NEAR Hackathon submission notes
 
 Walkthrough and reference for hackathon judges. The project README is [here](../README.md).
 

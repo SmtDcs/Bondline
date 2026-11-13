@@ -30,8 +30,8 @@ jobs:
       - run: npm run build
         working-directory: site
         env:
-          BASE_PATH: /claimable-bot-promises/
-          PUBLIC_SITE_URL: https://smtdcs.github.io/claimable-bot-promises/
+          BASE_PATH: /Bondline/
+          PUBLIC_SITE_URL: https://smtdcs.github.io/Bondline/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/dist

@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#0a0a0a"/><g fill="#f4f4f2"><rect x="2" y="2" width="3" height="3"/><rect x="6.5" y="2" width="3" height="3"/><rect x="11" y="2" width="3" height="3"/><rect x="2" y="6.5" width="3" height="3"/><rect x="11" y="6.5" width="3" height="3"/><rect x="2" y="11" width="3" height="3"/><rect x="6.5" y="11" width="3" height="3"/></g><rect x="11" y="11" width="3" height="3" fill="#8c8c88"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-53.712 6.288 235.424 235.424" fill="none">
+<rect x="-53.712" y="6.288" width="235.424" height="235.424" fill="#0a0a0a"/>
+<path d="M 115,27.515 L 72.184,27.515 L 48.184,51.515 L 91,51.515 L 104,64.515 L 104,95 L 91,108 L 54,108 L 54,132 L 91,132 L 104,145 L 104,156.5 L 128,156.5 L 128,40.515 Z M 0,53.029 L 0,178.971 L 41.515,220.485 L 61.456,220.485 L 68.456,213.485 L 24,169.029 L 24,62.971 L 52.456,34.515 L 52.456,27.515 L 32.515,27.515 L 32.515,34.515 Z" fill="#f2b544"/>
+<path d="M 104,190.669 L 74.184,220.485 L 108.125,220.485 L 128,200.61 L 128,156 L 104,156 Z" fill="#3ddc97"/>
+</svg>

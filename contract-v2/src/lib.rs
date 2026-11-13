@@ -1,4 +1,4 @@
-//! Claimable bot promises v2: NEP-141 bonds, measured storage accounting, per-merchant order ids,
+//! Bondline v2: NEP-141 bonds, measured storage accounting, per-merchant order ids,
 //! order expiry and callbacks that put the books back when an outgoing transfer fails.
 //! The interface spec is docs/STABLECOIN.md; v1 lives untouched in ../contract.
 

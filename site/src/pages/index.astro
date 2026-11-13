@@ -4,7 +4,7 @@ import run from '../data/run.json';
 import { heroGridSvg, miniGridSvg, storySvg, STORY_VIEWBOX, GRID_VIEWBOX } from '../lib/stills';
 import { STILL_U, type Facts } from '../lib/story-model';
 
-const REPO = (import.meta.env.PUBLIC_REPO_URL || 'https://github.com/SmtDcs/claimable-bot-promises').trim();
+const REPO = (import.meta.env.PUBLIC_REPO_URL || 'https://github.com/SmtDcs/Bondline').trim();
 const SITE = (import.meta.env.PUBLIC_SITE_URL ?? '').trim();
 const A = run.orders.a, B = run.orders.b, T = run.token;
 const pct = (bps: number) => bps / 100;
@@ -51,7 +51,7 @@ const steps = [
   { cmd: 'npm run verify:fixtures', out: 'Checks every recorded receipt offline.' },
   { cmd: 'npm run demo:replay:v2', out: 'Then open <code>http://127.0.0.1:8787/?offline=1</code>. Nothing is sent to testnet.' },
 ];
-const title = 'Claimable bot promises';
+const title = 'Bondline';
 const description = "Refund promises from AI support bots, signed in a NEAR AI TEE and paid from the shop's bond by a NEAR contract.";
 ---
 <!doctype html>
@@ -69,13 +69,18 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
   {SITE && <meta property="og:url" content={SITE} />}
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/favicon.svg`} type="image/svg+xml" />
+  <link rel="icon" href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/favicon-32.png`} type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/apple-touch-icon.png`} />
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="header">
   <div class="wrap">
-    <a class="brand" href="#top"><i aria-hidden="true"></i>{title}</a>
+    <a class="brand" href="#top">
+      <img class="brand-mark" src={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/logo.svg`} alt="" width="15" height="22" />
+      Bondline
+    </a>
     <nav class="nav" aria-label="Sections">
       <a href="#near">How it works</a>
       <a href="#run">Demo</a>
