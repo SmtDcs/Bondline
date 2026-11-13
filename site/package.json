@@ -1,0 +1,20 @@
+{
+  "name": "claimable-bot-promises-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "data": "node scripts/extract-run.mjs",
+    "dev": "node scripts/extract-run.mjs && astro dev",
+    "build": "node scripts/extract-run.mjs && astro build",
+    "preview": "astro preview --port 4321"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.5",
+    "@fontsource-variable/geist-mono": "^5.2.5",
+    "astro": "^5.0.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "playwright": "^1.65.0"
+  }
+}

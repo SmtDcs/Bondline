@@ -1,0 +1,155 @@
+import { scene, W, H, SHOP_X, SHOP_Y, SHOP_COLS, type Facts } from '../lib/story-model';
+import { calm } from './pixcanvas';
+
+const root = document.querySelector<HTMLElement>('[data-story]');
+const canvas = root?.querySelector<HTMLCanvasElement>('canvas');
+const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+const force = new URLSearchParams(location.search).has('live');
+
+if (root && canvas && ctx && (force || !calm())) {
+  const facts: Facts = JSON.parse(root.dataset.facts!);
+  const text = JSON.parse(root.dataset.text!) as {
+    a: { id: string; chips: Record<string, string> }; b: { id: string; chips: Record<string, string> };
+    refusals: string[]; token: string; unit: number;
+  };
+  const driver = root.querySelector<HTMLElement>('.story-driver')!;
+  const stage = root.querySelector<HTMLElement>('.story-stage')!;
+  const beats = [...root.querySelectorAll<HTMLElement>('.beat')];
+  const ticks = [...root.querySelectorAll<HTMLElement>('.story-ticks li')];
+  const refusalItems = [...root.querySelectorAll<HTMLElement>('[data-refusal]')];
+  const el = (k: string) => root.querySelector<HTMLElement>(`[data-out="${k}"]`)!;
+  const out = { order: el('order'), chip: el('chip'), reserved: el('reserved'), paid: el('paid') };
+  const N = beats.length;
+
+  root.classList.add('is-live');
+
+  let w = 0, h = 0, dpr = 1;
+  function size() {
+    const r = canvas!.getBoundingClientRect();
+    dpr = Math.min(devicePixelRatio || 1, 1.5);
+    w = Math.round(r.width); h = Math.round(r.height);
+    canvas!.width = Math.round(w * dpr); canvas!.height = Math.round(h * dpr);
+  }
+
+  let lastKey = '';
+  function hud(s: ReturnType<typeof scene>, beat: number) {
+    const o = text[s.order];
+    let chip = o.chips[s.status];
+    let bad = false;
+    if (s.refusal >= 0) { chip = text.refusals[s.refusal]; bad = true; }
+    const key = `${s.order}|${chip}|${s.reservedPct}|${s.paidPct}|${beat}|${s.refusal}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    out.order.textContent = o.id;
+    out.chip.textContent = chip;
+    out.chip.dataset.kind = bad ? 'bad' : s.status === 'none' ? 'none' : 'ok';
+    out.reserved.textContent = `${+(s.reservedPct * text.unit).toFixed(1)} ${text.token}`;
+    out.paid.textContent = `${+(s.paidPct * text.unit).toFixed(1)} ${text.token}`;
+    beats.forEach((b, i) => b.classList.toggle('is-on', i === beat));
+    ticks.forEach((t, i) => { t.classList.toggle('is-on', i === beat); t.classList.toggle('is-done', i < beat); });
+    refusalItems.forEach((r, i) => r.classList.toggle('is-on', i === s.refusal));
+  }
+
+  // a label on a dark plate, so it stays readable over the squares
+  function plate(label: string, x: number, y: number, a: number) {
+    const tw = ctx!.measureText(label).width;
+    ctx!.fillStyle = `rgba(10,10,10,${0.92 * a})`;
+    ctx!.fillRect(x - 4, y - 9, tw + 8, 18);
+    ctx!.fillStyle = `rgba(244,244,242,${a})`;
+    ctx!.fillText(label, x, y);
+  }
+
+  function draw(u: number) {
+    const t0 = performance.now();
+    const s = scene(u, facts);
+    const unit = Math.max(4, Math.floor(Math.min(w / (W + 0.5), h / (H + 1.6))));
+    const gap = Math.max(2, Math.round(unit * 0.24));
+    const sq = unit - gap;
+    const ox = Math.round((w - unit * W + gap) / 2), oy = Math.round((h - unit * H + gap) / 2);
+    ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx!.clearRect(0, 0, w, h);
+    ctx!.lineWidth = 1;
+
+    // shopper slots
+    ctx!.strokeStyle = 'rgba(255,255,255,0.1)';
+    for (let j = 0; j < s.slots; j++) {
+      const x = ox + (SHOP_X + (j % SHOP_COLS)) * unit, y = oy + (SHOP_Y + Math.floor(j / SHOP_COLS)) * unit;
+      ctx!.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1);
+    }
+    for (const c of s.cells) {
+      const x = Math.round(ox + c.x * unit), y = Math.round(oy + c.y * unit);
+      if (c.fill > 0.01) {
+        ctx!.fillStyle = c.white ? `rgba(244,244,242,${c.fill})` : `rgba(84,84,82,${c.fill})`;
+        ctx!.fillRect(x, y, sq, sq);
+      }
+      if (c.outline > 0.01) {
+        ctx!.strokeStyle = `rgba(244,244,242,${c.outline})`;
+        ctx!.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1);
+      }
+    }
+    const rowsCap = facts[s.order].capPct / 10;
+    ctx!.font = `500 11px "Geist Mono Variable", ui-monospace, monospace`;
+    ctx!.textBaseline = 'middle';
+    if (s.capLine > 0.01) {
+      const y = oy + rowsCap * unit - gap / 2;
+      ctx!.strokeStyle = `rgba(244,244,242,${s.capLine})`;
+      ctx!.setLineDash([4, 4]);
+      ctx!.beginPath(); ctx!.moveTo(ox - 6, y + 0.5); ctx!.lineTo(ox + 10 * unit - gap + 6, y + 0.5); ctx!.stroke();
+      ctx!.setLineDash([]);
+      plate(`max_bps ${facts[s.order].capPct * 100}`, ox, y + 13, s.capLine);
+    }
+    if (s.bracket > 0.01) {
+      const x0 = ox - 7, x1 = ox + 10 * unit - gap + 7, y0 = oy - 7, y1 = oy + rowsCap * unit - gap + 7;
+      ctx!.strokeStyle = `rgba(244,244,242,${s.bracket})`;
+      const k = 10;
+      ctx!.beginPath();
+      ctx!.moveTo(x0 + k, y0 + 0.5); ctx!.lineTo(x0 + 0.5, y0 + 0.5); ctx!.lineTo(x0 + 0.5, y1 + 0.5); ctx!.lineTo(x0 + k, y1 + 0.5);
+      ctx!.moveTo(x1 - k, y0 + 0.5); ctx!.lineTo(x1 - 0.5, y0 + 0.5); ctx!.lineTo(x1 - 0.5, y1 + 0.5); ctx!.lineTo(x1 - k, y1 + 0.5);
+      ctx!.stroke();
+      plate('reserved · cannot be withdrawn', ox, y1 + 13, s.bracket);
+    }
+    hud(s, Math.min(N - 1, Math.floor(u)));
+    (window as any).__story.ms = performance.now() - t0;
+  }
+
+  // progress: 4% hold at each end, then a time-normalised lerp
+  let target = 0, cur = 0, raf = 0, prev = 0, visible = false, forced: number | null = null;
+  function measure() {
+    const r = driver.getBoundingClientRect();
+    const span = r.height - stage.offsetHeight;
+    const stick = parseFloat(getComputedStyle(stage).top) || 0;
+    const p = span > 0 ? Math.min(1, Math.max(0, (stick - r.top) / span)) : 0;
+    target = Math.min(1, Math.max(0, (p - 0.04) / 0.92)) * N * 0.99999;
+  }
+  function tick(ts: number) {
+    raf = 0;
+    const dt = Math.min(64, ts - prev || 16); prev = ts;
+    if (forced !== null) cur = forced;
+    else cur += (target - cur) * (1 - Math.pow(1 - 0.14, dt / 16.7));
+    if (Math.abs(target - cur) < 0.0005) cur = forced ?? target;
+    draw(cur);
+    if (forced === null && Math.abs(target - cur) > 0.0005 && visible && !document.hidden) raf = requestAnimationFrame(tick);
+  }
+  const kick = () => { if (!raf) { prev = performance.now(); raf = requestAnimationFrame(tick); } };
+
+  (window as any).__story = { ms: 0, force(u: number | null) { forced = u; kick(); } };
+
+  size(); measure(); cur = target; draw(cur);
+  addEventListener('scroll', () => { if (visible) { measure(); kick(); } }, { passive: true });
+  new ResizeObserver(() => { size(); measure(); kick(); }).observe(canvas);
+  new IntersectionObserver((es) => { visible = es[es.length - 1].isIntersecting; if (visible) { measure(); kick(); } }).observe(driver);
+  document.fonts?.ready.then(kick);
+
+  // A link inside a beat that is not on screen can take keyboard focus: bring its beat into view.
+  beats.forEach((b, i) => b.addEventListener('focusin', () => {
+    if (b.classList.contains('is-on')) return;
+    const span = driver.offsetHeight - stage.offsetHeight;
+    const top = driver.getBoundingClientRect().top + scrollY;
+    scrollTo({ top: top + span * (0.04 + 0.92 * ((i + 0.5) / N)), behavior: 'instant' as ScrollBehavior });
+  }));
+  ticks.forEach((t, i) => t.querySelector('button')?.addEventListener('click', () => {
+    const span = driver.offsetHeight - stage.offsetHeight;
+    const top = driver.getBoundingClientRect().top + scrollY;
+    scrollTo({ top: top + span * (0.04 + 0.92 * ((i + 0.55) / N)), behavior: 'smooth' });
+  }));
+}
