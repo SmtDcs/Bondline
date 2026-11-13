@@ -1,0 +1,326 @@
+//! Pure parsing helpers. No blockchain calls here, so every function is unit-testable.
+
+use near_sdk::serde::Deserialize;
+
+/// The fixed token prefix. Grammar (exact bytes, no spaces):
+///   PROMISE|refund|order=<ORDER_ID>|bps=<BPS>
+///   ORDER_ID = 1..=32 chars of [A-Za-z0-9-]
+///   BPS      = 1..=5 ASCII digits, value 1..=10000, followed by end-of-string or a non-digit
+pub const TOKEN_PREFIX: &str = "PROMISE|";
+const TOKEN_BODY: &str = "PROMISE|refund|order=";
+const BPS_SEP: &str = "|bps=";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedPromise {
+    pub order_id: String,
+    pub bps: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedSignedText {
+    /// `Some(model)` for provider_tee text "<model>:<req>:<resp>", `None` for gateway text "<req>:<resp>".
+    pub model: Option<String>,
+    pub request_hash_hex: String,
+    pub response_hash_hex: String,
+}
+
+fn is_lower_hex_64(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Parse NEAR AI Cloud signed text. Splits from the RIGHT on ':' (model ids contain '/', never ':').
+pub fn parse_signed_text(text: &str) -> Result<ParsedSignedText, &'static str> {
+    let mut parts = text.rsplitn(3, ':');
+    let resp = parts.next().ok_or("ERR_SIGNED_TEXT_FORMAT")?;
+    let req = parts.next().ok_or("ERR_SIGNED_TEXT_FORMAT")?;
+    let model = parts.next().map(|m| m.to_string());
+    if !is_lower_hex_64(resp) || !is_lower_hex_64(req) {
+        return Err("ERR_SIGNED_TEXT_FORMAT");
+    }
+    if let Some(m) = &model {
+        if m.is_empty() {
+            return Err("ERR_SIGNED_TEXT_FORMAT");
+        }
+    }
+    Ok(ParsedSignedText {
+        model,
+        request_hash_hex: req.to_string(),
+        response_hash_hex: resp.to_string(),
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+struct ChatResponse {
+    choices: Vec<Choice>,
+}
+#[derive(Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+struct Choice {
+    message: Message,
+}
+#[derive(Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+struct Message {
+    content: Option<String>,
+}
+
+/// Extract `choices[0].message.content` from the exact Chat Completions response bytes.
+/// Only this field is searched; `reasoning_content` and every other field are ignored.
+pub fn extract_content(response_bytes: &[u8]) -> Result<String, &'static str> {
+    let parsed: ChatResponse =
+        near_sdk::serde_json::from_slice(response_bytes).map_err(|_| "ERR_RESPONSE_JSON")?;
+    let first = parsed.choices.into_iter().next().ok_or("ERR_RESPONSE_NO_CHOICE")?;
+    first.message.content.ok_or("ERR_RESPONSE_NO_CONTENT")
+}
+
+/// Find exactly one PROMISE token in `content` and parse it.
+pub fn parse_promise(content: &str) -> Result<ParsedPromise, &'static str> {
+    let count = content.matches(TOKEN_PREFIX).count();
+    if count == 0 {
+        return Err("ERR_NO_PROMISE_TOKEN");
+    }
+    if count > 1 {
+        return Err("ERR_MULTIPLE_PROMISE_TOKENS");
+    }
+    let start = content.find(TOKEN_PREFIX).unwrap();
+    let rest = &content[start..];
+    let rest = rest.strip_prefix(TOKEN_BODY).ok_or("ERR_TOKEN_GRAMMAR")?;
+    let sep = rest.find(BPS_SEP).ok_or("ERR_TOKEN_GRAMMAR")?;
+    let order_id = &rest[..sep];
+    if order_id.is_empty()
+        || order_id.len() > 32
+        || !order_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return Err("ERR_TOKEN_ORDER_ID");
+    }
+    let after = &rest[sep + BPS_SEP.len()..];
+    let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() || digits.len() > 5 {
+        return Err("ERR_TOKEN_BPS");
+    }
+    let bps: u32 = digits.parse().map_err(|_| "ERR_TOKEN_BPS")?;
+    if bps == 0 || bps > 10_000 {
+        return Err("ERR_TOKEN_BPS");
+    }
+    Ok(ParsedPromise { order_id: order_id.to_string(), bps: bps as u16 })
+}
+
+/// Decode hex with optional "0x" prefix into exactly N bytes.
+pub fn decode_hex_fixed<const N: usize>(s: &str) -> Result<[u8; N], &'static str> {
+    let s = s.strip_prefix("0x").unwrap_or(s);
+    let v = hex::decode(s).map_err(|_| "ERR_HEX")?;
+    v.try_into().map_err(|_| "ERR_HEX_LENGTH")
+}
+
+
+// ---------------- v3 shop authorization (app/lib/shop-auth.mjs is the JS mirror) ----------------
+
+/// Exactly one occurrence of this marker may appear in the raw request bytes.
+pub const SHOP_AUTH_MARKER: &[u8] = b"SHOP_AUTH|";
+/// Tag grammar (exact bytes, fixed field order):
+///   SHOP_AUTH|v3|contract=<acc>|merchant=<acc>|order=<ORDER_ID>|buyer=<acc>|nonce=<32 lower hex>|sig=<128 lower hex>
+pub const SHOP_AUTH_PREFIX: &str = "SHOP_AUTH|v3|";
+/// The shop signs `SHOP_AUTH_DOMAIN + hex(sha256(request bytes with the 128 sig characters set to '0'))`.
+pub const SHOP_AUTH_DOMAIN: &str = "cbp-v3-shop-auth:";
+const SHOP_AUTH_FIELDS: [&str; 6] = ["contract", "merchant", "order", "buyer", "nonce", "sig"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShopAuth {
+    pub contract: String,
+    pub merchant: String,
+    pub order_id: String,
+    pub buyer: String,
+    pub nonce: String,
+    pub sig: [u8; 64],
+    /// Byte offset of the 128 sig hex characters inside the request.
+    pub sig_offset: usize,
+}
+
+fn is_tag_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'|' | b'=')
+}
+
+fn is_lower_hex_n(s: &str, n: usize) -> bool {
+    s.len() == n && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Find the one shop-authorization tag in the raw request bytes and parse it. Never panics.
+pub fn parse_shop_auth(req: &[u8]) -> Result<ShopAuth, &'static str> {
+    let m = SHOP_AUTH_MARKER.len();
+    let mut first = None;
+    let mut count = 0usize;
+    if req.len() >= m {
+        for i in 0..=req.len() - m {
+            if &req[i..i + m] == SHOP_AUTH_MARKER {
+                count += 1;
+                if first.is_none() {
+                    first = Some(i);
+                }
+            }
+        }
+    }
+    let start = match (count, first) {
+        (0, _) => return Err("ERR_SHOP_AUTH_MISSING"),
+        (1, Some(s)) => s,
+        _ => return Err("ERR_SHOP_AUTH_MULTIPLE"),
+    };
+    let mut end = start;
+    while end < req.len() && is_tag_byte(req[end]) {
+        end += 1;
+    }
+    // Only ASCII tag bytes were taken, so this cannot fail.
+    let tag = core::str::from_utf8(&req[start..end]).map_err(|_| "ERR_SHOP_AUTH_FORMAT")?;
+    let rest = tag.strip_prefix(SHOP_AUTH_PREFIX).ok_or("ERR_SHOP_AUTH_FORMAT")?;
+    let parts: Vec<&str> = rest.split('|').collect();
+    if parts.len() != SHOP_AUTH_FIELDS.len() {
+        return Err("ERR_SHOP_AUTH_FORMAT");
+    }
+    let mut values: Vec<&str> = Vec::with_capacity(6);
+    for (part, name) in parts.iter().zip(SHOP_AUTH_FIELDS.iter()) {
+        let (k, v) = part.split_once('=').ok_or("ERR_SHOP_AUTH_FORMAT")?;
+        if k != *name || v.is_empty() || v.contains('=') {
+            return Err("ERR_SHOP_AUTH_FORMAT");
+        }
+        values.push(v);
+    }
+    let (order_id, nonce, sig_hex) = (values[2], values[4], values[5]);
+    if order_id.len() > 32 || !order_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err("ERR_SHOP_AUTH_FORMAT");
+    }
+    if !is_lower_hex_n(nonce, 32) || !is_lower_hex_n(sig_hex, 128) {
+        return Err("ERR_SHOP_AUTH_FORMAT");
+    }
+    let sig = decode_hex_fixed::<64>(sig_hex).map_err(|_| "ERR_SHOP_AUTH_FORMAT")?;
+    Ok(ShopAuth {
+        contract: values[0].to_string(),
+        merchant: values[1].to_string(),
+        order_id: order_id.to_string(),
+        buyer: values[3].to_string(),
+        nonce: nonce.to_string(),
+        sig,
+        sig_offset: end - 128,
+    })
+}
+
+/// The request bytes with the signature characters replaced by '0': what the shop's signature covers (hashed).
+pub fn shop_auth_template(req: &[u8], auth: &ShopAuth) -> Vec<u8> {
+    let mut t = req.to_vec();
+    for b in &mut t[auth.sig_offset..auth.sig_offset + 128] {
+        *b = b'0';
+    }
+    t
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_ok() {
+        let p = parse_promise("Sorry.\nPROMISE|refund|order=A123|bps=2000").unwrap();
+        assert_eq!(p, ParsedPromise { order_id: "A123".into(), bps: 2000 });
+        let p = parse_promise("x PROMISE|refund|order=A-9|bps=10000\"}").unwrap();
+        assert_eq!(p.bps, 10000);
+    }
+
+    #[test]
+    fn token_errors() {
+        assert_eq!(parse_promise("no promise here"), Err("ERR_NO_PROMISE_TOKEN"));
+        assert_eq!(
+            parse_promise("PROMISE|refund|order=A1|bps=1 PROMISE|refund|order=A1|bps=2"),
+            Err("ERR_MULTIPLE_PROMISE_TOKENS")
+        );
+        assert_eq!(parse_promise("PROMISE|discount|order=A1|bps=1"), Err("ERR_TOKEN_GRAMMAR"));
+        assert_eq!(parse_promise("PROMISE|refund|order=A 1|bps=1"), Err("ERR_TOKEN_ORDER_ID"));
+        assert_eq!(parse_promise("PROMISE|refund|order=A1|bps=0"), Err("ERR_TOKEN_BPS"));
+        assert_eq!(parse_promise("PROMISE|refund|order=A1|bps=10001"), Err("ERR_TOKEN_BPS"));
+        assert_eq!(parse_promise("PROMISE|refund|order=A1|bps=123456"), Err("ERR_TOKEN_BPS"));
+        assert_eq!(parse_promise("PROMISE|refund|order=A1|bps=x"), Err("ERR_TOKEN_BPS"));
+    }
+
+    #[test]
+    fn signed_text_forms() {
+        let h = "a".repeat(64);
+        let t = parse_signed_text(&format!("z-ai/glm-5.3-flash:{h}:{h}")).unwrap();
+        assert_eq!(t.model.as_deref(), Some("z-ai/glm-5.3-flash"));
+        let g = parse_signed_text(&format!("{h}:{h}")).unwrap();
+        assert_eq!(g.model, None);
+        assert!(parse_signed_text(&format!("m:{h}:{}", "A".repeat(64))).is_err());
+        assert!(parse_signed_text("m:abc:def").is_err());
+    }
+
+    #[test]
+    fn content_only() {
+        let r = br#"{"choices":[{"message":{"content":"PROMISE|refund|order=A1|bps=5","reasoning_content":"PROMISE|refund|order=A1|bps=9"}}]}"#;
+        let c = extract_content(r).unwrap();
+        assert_eq!(parse_promise(&c).unwrap().bps, 5);
+        assert_eq!(extract_content(b"not json"), Err("ERR_RESPONSE_JSON"));
+    }
+
+    /// The same table app/test/promise.test.mjs runs against the JS mirror (tests-9): one file, two parsers.
+    #[test]
+    fn shared_parser_vectors() {
+        use near_sdk::base64::{engine::general_purpose::STANDARD, Engine};
+        use near_sdk::serde_json::Value;
+        let file: Value = near_sdk::serde_json::from_str(include_str!("../tests/parser_vectors.json")).unwrap();
+        let cases = file["cases"].as_array().unwrap();
+        assert!(cases.len() >= 30);
+        let mut wrong = Vec::new();
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let bytes = match case["response_json"].as_str() {
+                Some(j) => j.as_bytes().to_vec(),
+                None => STANDARD.decode(case["response_b64"].as_str().unwrap()).unwrap(),
+            };
+            let got = extract_content(&bytes).and_then(|c| parse_promise(&c));
+            let expect = &case["expect"];
+            let matches = match (&got, expect.get("error").and_then(|e| e.as_str())) {
+                (Err(e), Some(want)) => *e == want,
+                (Ok(p), None) => p.order_id == expect["order_id"].as_str().unwrap() && p.bps as u64 == expect["bps"].as_u64().unwrap(),
+                _ => false,
+            };
+            if !matches {
+                wrong.push(format!("{name}: got {got:?}, expected {expect}"));
+            }
+        }
+        assert!(wrong.is_empty(), "parser vectors disagree:\n{}", wrong.join("\n"));
+    }
+
+    fn tag(nonce: &str, sig: &str) -> String {
+        format!("SHOP_AUTH|v3|contract=c.testnet|merchant=m.testnet|order=A1|buyer=b.testnet|nonce={nonce}|sig={sig}")
+    }
+
+    #[test]
+    fn shop_auth_parses_inside_json_and_finds_the_sig() {
+        let n = "0".repeat(31) + "1";
+        let sig = "ab".repeat(64);
+        let req = format!("{{\"content\":\"x {}\"}}", tag(&n, &sig));
+        let a = parse_shop_auth(req.as_bytes()).unwrap();
+        assert_eq!((a.contract.as_str(), a.merchant.as_str(), a.order_id.as_str(), a.buyer.as_str()), ("c.testnet", "m.testnet", "A1", "b.testnet"));
+        assert_eq!(&req[a.sig_offset..a.sig_offset + 128], sig);
+        let t = shop_auth_template(req.as_bytes(), &a);
+        assert_eq!(t.len(), req.len());
+        assert_eq!(&t[a.sig_offset..a.sig_offset + 128], "0".repeat(128).as_bytes());
+    }
+
+    #[test]
+    fn shop_auth_errors() {
+        let n = "0".repeat(32);
+        let sig = "0".repeat(128);
+        assert_eq!(parse_shop_auth(b"no tag"), Err("ERR_SHOP_AUTH_MISSING"));
+        assert_eq!(parse_shop_auth(b""), Err("ERR_SHOP_AUTH_MISSING"));
+        let two = format!("{} {}", tag(&n, &sig), tag(&n, &sig));
+        assert_eq!(parse_shop_auth(two.as_bytes()), Err("ERR_SHOP_AUTH_MULTIPLE"));
+        assert_eq!(parse_shop_auth(format!("{} SHOP_AUTH|", tag(&n, &sig)).as_bytes()), Err("ERR_SHOP_AUTH_MULTIPLE"));
+        assert_eq!(parse_shop_auth(tag(&n, &sig).replace("|v3|", "|v2|").as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+        assert_eq!(parse_shop_auth(tag("abc", &sig).as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+        assert_eq!(parse_shop_auth(tag(&n, &"A".repeat(128)).as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+        assert_eq!(parse_shop_auth(tag(&n, &"0".repeat(127)).as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+        assert_eq!(parse_shop_auth(format!("{}0", tag(&n, &sig)).as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+        assert_eq!(parse_shop_auth(tag(&n, &sig).replace("buyer=", "buyr=").as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+        assert_eq!(parse_shop_auth(tag(&n, &sig).replace("order=A1", "order=").as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+        assert_eq!(parse_shop_auth(format!("{}|extra=1", tag(&n, &sig)).as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+        assert_eq!(parse_shop_auth(tag(&n, &sig).replace("order=A1", &format!("order={}", "A".repeat(33))).as_bytes()), Err("ERR_SHOP_AUTH_FORMAT"));
+    }
+}

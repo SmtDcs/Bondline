@@ -1,0 +1,30 @@
+[package]
+name = "bot-promises-v3"
+version = "0.3.0"
+edition = "2021"
+repository = "https://github.com/SmtDcs/claimable-bot-promises"
+
+[lib]
+name = "bot_promises_v3"
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.near.reproducible_build]
+image = "sourcescan/cargo-near:0.23.0-rust-1.99.1"
+image_digest = "sha256:8013f039e8005627f10ae66b5519d1a6eeeed7d7aef4b5067d5e9a86c4302fcc"
+passed_env = []
+container_build_command = ["cargo", "near", "build", "non-reproducible-wasm", "--locked"]
+
+[dependencies]
+near-sdk = "=5.30.1"
+hex = "0.4.3"
+
+[dev-dependencies]
+near-sdk = { version = "=5.30.1", features = ["unit-testing"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true
