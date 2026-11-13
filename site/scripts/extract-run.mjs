@@ -156,14 +156,20 @@ must(testsJs + testsV1 + testsV2 === testsTotal,
   `README numbers add up: ${testsJs} JS + ${testsV1} v1 + ${testsV2} v2 === ${testsTotal}`);
 const receipts = one(/\*\*(\d+) real NEAR AI receipts\*\*/, 'receipts', section);
 const tampered = one(/(\d+) deliberately edited/, 'tampered receipts', section);
-// Provenance: the exact commit the numbers were read from. A release build must be clean. A local build
-// with uncommitted inputs says so ("uncommitted") instead of printing a commit a visitor cannot check out.
+// Provenance: the commit that last changed the INPUTS (the README numbers and the fixtures this file
+// reads), not HEAD. Using HEAD would rewrite run.json on every unrelated commit and leave the tree
+// dirty forever; this value is stable until the numbers themselves change. A dirty input says
+// "uncommitted" instead of naming a commit a visitor cannot check out.
 let sourceCommit = 'uncommitted';
-let readmeSha = sha256hex(Buffer.from(readme, 'utf8')).slice(0, 16);
+const readmeSha = sha256hex(Buffer.from(readme, 'utf8')).slice(0, 16);
 try {
-  const dirty = execFileSync('git', ['-C', repo, 'status', '--porcelain', '--', 'README.md', 'fixtures/'], { encoding: 'utf8' }).trim();
-  const head = execFileSync('git', ['-C', repo, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
-  sourceCommit = dirty ? 'uncommitted' : head;
+  const inputs = ['README.md', 'fixtures/replay/transcript-v2.json', 'fixtures/runs/v2-live-run.json'];
+  const dirty = execFileSync('git', ['-C', repo, 'status', '--porcelain', '--', ...inputs],
+    { encoding: 'utf8' }).trim();
+  if (!dirty) {
+    sourceCommit = execFileSync('git', ['-C', repo, 'log', '-1', '--format=%h', '--', ...inputs],
+      { encoding: 'utf8' }).trim() || 'uncommitted';
+  }
 } catch { /* a site-only checkout has no git history: the committed run.json keeps the value it was built with */ }
 const tgas = paidTusdc.reduce((a, b) => a + b, 0) / paidTusdc.length;
 
