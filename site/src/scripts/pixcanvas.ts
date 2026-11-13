@@ -3,6 +3,17 @@
 
 type Draw = (buf: Uint8Array, cols: number, rows: number, t: number) => void;
 
+// While the page is scrolling, animated repaints (putImageData on the ring and
+// fields) are what makes scrolling stutter on a phone. Pause them until the
+// scroll has been quiet for a moment.
+let scrolling = false;
+let scrollTimer: ReturnType<typeof setTimeout> | undefined;
+addEventListener('scroll', () => {
+  scrolling = true;
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(() => { scrolling = false; }, 150);
+}, { passive: true });
+
 export interface PixOptions {
   cell: number;        // CSS px per cell
   fps: number;
@@ -48,7 +59,7 @@ export function mountPix(wrap: HTMLElement, draw: Draw, o: PixOptions): { redraw
   const frame = (ts: number) => {
     raf = 0;
     if (!visible || document.hidden) return;
-    if (ts - last >= 1000 / o.fps) { last = ts; paint(now()); }
+    if (!scrolling && ts - last >= 1000 / o.fps) { last = ts; paint(now()); }
     raf = requestAnimationFrame(frame);
   };
   const kick = () => { if (started && !raf && visible && !document.hidden) raf = requestAnimationFrame(frame); };

@@ -61,7 +61,7 @@ if (root) {
     verdict.dataset.state = ok ? 'ok' : 'bad';
     verdict.querySelector('.v-res')!.textContent = ok ? 'SELF-CONSISTENT' : 'NOT VERIFIED';
     $('explain').textContent = ok
-      ? 'These are the bytes the key signed. Checked in this browser just now.'
+      ? ''
       : !hashOk
         ? 'One character changed, so the bytes no longer hash to the value that was signed. On chain the same edit has no receipt: ERR_NO_RECEIPT_FOR_BYTES.'
         : 'The signed text now names the edited bytes, but the signature was made over the original text. On chain the shop\'s attempt to register an edited reply failed the same way: ERR_BAD_SIGNATURE.';
@@ -74,7 +74,7 @@ if (root) {
     const verdict = $('verdict');
     verdict.dataset.state = 'na';
     verdict.querySelector('.v-res')!.textContent = 'NOT CHECKED HERE';
-    $('explain').textContent = 'This browser has no WebCrypto Ed25519, so nothing was checked here. The values shown are the recorded ones; npm run verify:fixtures runs the same check locally.';
+    $('explain').textContent = 'This browser does not support Ed25519 in WebCrypto. Run npm run verify:fixtures to check locally.';
     root!.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((x) => (x.disabled = true));
   }
 

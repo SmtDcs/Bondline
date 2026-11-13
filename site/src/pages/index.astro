@@ -52,7 +52,7 @@ const steps = [
   { cmd: 'npm run demo:replay:v2', out: 'Then open <code>http://127.0.0.1:8787/?offline=1</code>. Nothing is sent to testnet.' },
 ];
 const title = 'Claimable bot promises';
-const description = "Refund promises from AI support bots, signed in a NEAR AI TEE and paid from the shop's bond by a NEAR contract. Testnet.";
+const description = "Refund promises from AI support bots, signed in a NEAR AI TEE and paid from the shop's bond by a NEAR contract.";
 ---
 <!doctype html>
 <html lang="en">
@@ -73,14 +73,6 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
-<aside class="status" aria-label="Project status">
-  <div class="wrap">
-    <span><b>Testnet prototype</b></span>
-    <span>Not audited</span>
-    <span>tUSDC is a mock token</span>
-  </div>
-</aside>
-
 <header class="header">
   <div class="wrap">
     <a class="brand" href="#top"><i aria-hidden="true"></i>{title}</a>
@@ -88,7 +80,6 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
       <a href="#near">How it works</a>
       <a href="#run">Demo</a>
       <a href="#verify">Verify</a>
-      <a href="#limits">Limits</a>
       <a href={REPO}>GitHub</a>
     </nav>
   </div>
@@ -120,7 +111,7 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
           <p class="label plain">Order {A.id} · {A.amount} {T} · max_bps {A.maxBps}</p>
           <h2 data-when="binding">Receipt on chain.</h2>
           <h2 data-when="open">Signed, not registered.</h2>
-          <div class="row" data-when="binding"><span class="chip" data-kind="ok">BINDING · claimable {fmt(A.paid)}</span><span class="tag">recomputed</span></div>
+          <div class="row" data-when="binding"><span class="chip" data-kind="ok">BINDING · claimable {fmt(A.paid)}</span></div>
           <div class="row" data-when="open"><span class="chip" data-kind="none">NOT A PROMISE</span></div>
           <code class="tokenline">{A.token}</code>
           <p class="meta">Recorded on testnet, {recorded} · <span class="nw">{run.contract}</span></p>
@@ -215,7 +206,7 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
               <p class="state">04 · <b>Refusals</b> · order {A.id}</p>
               <h3>Cheating fails.</h3>
               <ol class="refusals">
-                <li data-refusal="0"><span>The shopper edits <code>2000</code> to <code>3000</code> and claims</span><code>{run.refusals.tamper.error}</code><span class="tx">recomputed from the recorded bytes</span></li>
+                <li data-refusal="0"><span>The shopper edits <code>2000</code> to <code>3000</code> and claims</span><code>{run.refusals.tamper.error}</code></li>
                 <li data-refusal="1"><span>The shop registers an edited reply</span><code>{run.refusals.edited.error}</code><span class="tx">failed tx · <a href={txUrl(run.refusals.edited.tx)}>{short(run.refusals.edited.tx)}</a> · testnet</span></li>
                 <li data-refusal="2"><span>The shopper claims a second time</span><code>{run.refusals.again.error}</code></li>
               </ol>
@@ -249,9 +240,6 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
       </div>
     </div>
 
-    <div class="story-note">
-      <p>Transactions are real testnet data. Badges before each claim and the edited-bytes result are recomputed from the recorded bytes.</p>
-    </div>
   </section>
 
   <!-- v3: customer registration -->
@@ -299,11 +287,10 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
         <div class="v-verdict" data-v="verdict" data-state="na">
           <span class="label plain">Result in this browser</span>
           <span class="v-res">NOT CHECKED HERE</span>
-          <p data-v="explain">Without JavaScript nothing is checked on this page. <code>npm run verify:fixtures</code> runs the same check locally.</p>
+          <p data-v="explain"></p>
         </div>
       </div>
     </div>
-    <p class="v-not"><b>What this does not prove.</b> This checks the bytes against the key. It doesn't read the chain or the key's TEE attestation; <code>npm run verify</code> does the on-chain part.</p>
   </section>
 
   <!-- What NEAR does -->
@@ -338,24 +325,6 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
     </div>
   </section>
 
-  <!-- Limits -->
-  <section class="band" id="limits" aria-labelledby="h-limits">
-    <div class="band-head">
-      <p class="label">Limits</p>
-      <h2 id="h-limits">Limitations</h2>
-    </div>
-    <ol class="limits">
-      <li><span class="n">01</span><h3>Testnet only</h3><p>Nothing is on mainnet. tUSDC is a mock token with no value.</p></li>
-      <li><span class="n">02</span><h3>Full-access keys on v1/v2</h3><p>Whoever holds those keys could redeploy the v1/v2 contracts. v3 has no access keys.</p></li>
-      <li><span class="n">03</span><h3>Attestation is off chain</h3><p>The contract can't verify a TDX quote. Only the attestation record's hash is on chain.</p></li>
-      <li><span class="n">04</span><h3>The shop sets expiry</h3><p>A promise must be claimed before the order expires.</p></li>
-      <li><span class="n">05</span><h3>Claims are public</h3><p>A claim puts the reply bytes on chain.</p></li>
-      <li><span class="n">06</span><h3>Demo key, no wallet</h3><p>The demo uses a claim-only function-call key on the server instead of a wallet login.</p></li>
-      <li><span class="n">07</span><h3>The shop must register the reply</h3><p>The demo runs on v2, where the shop can still ignore a reply it doesn't want to honour. v3 fixes this.</p></li>
-      <li><span class="n">08</span><h3>The demo badge is the shop's page</h3><p>The BINDING badge trusts the RPC and contract the shop's server names. Run <code>npm run verify</code> for an independent check.</p></li>
-    </ol>
-  </section>
-
   <!-- Try -->
   <section class="band" id="try" aria-labelledby="h-try">
     <div class="band-head">
@@ -373,7 +342,7 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
       <dl class="card facts">
         <div><dt>Contract (v3)</dt><dd>claimable-promises.testnet</dd></div>
         <div><dt>Contract (v2)</dt><dd>{run.contract}</dd></div>
-        <div><dt>Mock token</dt><dd>sm1110-tusdc.testnet ({T}, 6 decimals)</dd></div>
+        <div><dt>Token</dt><dd>sm1110-tusdc.testnet ({T}, 6 decimals)</dd></div>
         <div><dt>Bot model</dt><dd>NEAR AI Cloud {v.model}</dd></div>
       </dl>
     </div>
@@ -387,7 +356,7 @@ const description = "Refund promises from AI support bots, signed in a NEAR AI T
         <p><b>{title}</b> · MIT · <a href={REPO}>GitHub</a></p>
       </div>
       <div class="small">
-        <p>Testnet only. Not audited.</p>
+        <p>Built on NEAR and NEAR AI Cloud.</p>
       </div>
     </div>
   </footer>

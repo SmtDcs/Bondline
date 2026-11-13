@@ -3,7 +3,7 @@ import { calm } from './pixcanvas';
 
 const root = document.querySelector<HTMLElement>('[data-story]');
 const canvas = root?.querySelector<HTMLCanvasElement>('canvas');
-const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+const ctx = canvas?.getContext('2d');
 const force = new URLSearchParams(location.search).has('live');
 
 if (root && canvas && ctx && (force || !calm())) {
@@ -23,11 +23,16 @@ if (root && canvas && ctx && (force || !calm())) {
 
   root.classList.add('is-live');
 
-  let w = 0, h = 0, dpr = 1;
+  let w = 0, h = 0, dpr = 1, lastW = -1, lastH = -1;
   function size() {
     const r = canvas!.getBoundingClientRect();
+    const nw = Math.round(r.width), nh = Math.round(r.height);
+    // Android's address bar show/hide changes the viewport by a fraction: do not
+    // reallocate (and so clear) the canvas unless the CSS size really changed.
+    if (nw === lastW && nh === lastH) return;
+    lastW = nw; lastH = nh;
     dpr = Math.min(devicePixelRatio || 1, 1.5);
-    w = Math.round(r.width); h = Math.round(r.height);
+    w = nw; h = nh;
     canvas!.width = Math.round(w * dpr); canvas!.height = Math.round(h * dpr);
   }
 
@@ -112,21 +117,32 @@ if (root && canvas && ctx && (force || !calm())) {
     (window as any).__story.ms = performance.now() - t0;
   }
 
+  // Geometry is cached here and refreshed only when something may have moved it,
+  // so the scroll path never forces layout.
+  let driverTop = 0, span = 0, stick = 0;
+  function layout() {
+    driverTop = driver.getBoundingClientRect().top + scrollY;
+    span = driver.offsetHeight - stage.offsetHeight;
+    stick = parseFloat(getComputedStyle(stage).top) || 0;
+  }
+
   // progress: 4% hold at each end, then a time-normalised lerp
   let target = 0, cur = 0, raf = 0, prev = 0, visible = false, forced: number | null = null;
   function measure() {
-    const r = driver.getBoundingClientRect();
-    const span = r.height - stage.offsetHeight;
-    const stick = parseFloat(getComputedStyle(stage).top) || 0;
-    const p = span > 0 ? Math.min(1, Math.max(0, (stick - r.top) / span)) : 0;
+    const p = span > 0 ? Math.min(1, Math.max(0, (scrollY + stick - driverTop) / span)) : 0;
     target = Math.min(1, Math.max(0, (p - 0.04) / 0.92)) * N * 0.99999;
   }
+  const coarse = matchMedia('(pointer: coarse)').matches;
   function tick(ts: number) {
     raf = 0;
     const dt = Math.min(64, ts - prev || 16); prev = ts;
+    measure();
     if (forced !== null) cur = forced;
-    else cur += (target - cur) * (1 - Math.pow(1 - 0.14, dt / 16.7));
-    if (Math.abs(target - cur) < 0.0005) cur = forced ?? target;
+    else if (coarse) cur = target;
+    else {
+      cur += (target - cur) * (1 - Math.pow(1 - 0.14, dt / 16.7));
+      if (Math.abs(target - cur) < 0.0005) cur = target;
+    }
     draw(cur);
     if (forced === null && Math.abs(target - cur) > 0.0005 && visible && !document.hidden) raf = requestAnimationFrame(tick);
   }
@@ -134,11 +150,16 @@ if (root && canvas && ctx && (force || !calm())) {
 
   (window as any).__story = { ms: 0, force(u: number | null) { forced = u; kick(); } };
 
-  size(); measure(); cur = target; draw(cur);
-  addEventListener('scroll', () => { if (visible) { measure(); kick(); } }, { passive: true });
-  new ResizeObserver(() => { size(); measure(); kick(); }).observe(canvas);
-  new IntersectionObserver((es) => { visible = es[es.length - 1].isIntersecting; if (visible) { measure(); kick(); } }).observe(driver);
-  document.fonts?.ready.then(kick);
+  size(); layout(); measure(); cur = target; draw(cur);
+  addEventListener('scroll', () => { if (visible) kick(); }, { passive: true });
+  const ro = new ResizeObserver(() => { size(); layout(); measure(); kick(); });
+  ro.observe(canvas); ro.observe(driver); ro.observe(document.body);
+  new IntersectionObserver((es) => {
+    visible = es[es.length - 1].isIntersecting;
+    if (visible) { layout(); measure(); kick(); }
+  }).observe(driver);
+  addEventListener('load', () => { layout(); measure(); kick(); });
+  document.fonts?.ready.then(() => { layout(); measure(); kick(); });
 
   // A link inside a beat that is not on screen can take keyboard focus: bring its beat into view.
   beats.forEach((b, i) => b.addEventListener('focusin', () => {
