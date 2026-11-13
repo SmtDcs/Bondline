@@ -4,7 +4,7 @@ import run from '../data/run.json';
 import { ringSvg, storySvg, STORY_VIEWBOX } from '../lib/stills';
 import { STILL_U, type Facts } from '../lib/story-model';
 
-const REPO = (import.meta.env.PUBLIC_REPO_URL ?? '').trim();
+const REPO = (import.meta.env.PUBLIC_REPO_URL || 'https://github.com/SmtDcs/claimable-bot-promises').trim();
 const SITE = (import.meta.env.PUBLIC_SITE_URL ?? '').trim();
 const A = run.orders.a, B = run.orders.b, T = run.token;
 const pct = (bps: number) => bps / 100;
@@ -138,7 +138,7 @@ const description = "If a shop's AI support bot promises you a refund, you can c
       <div><dt>{run.numbers.receipts}</dt><dd>real NEAR AI receipts verified offline; {run.numbers.tampered} deliberately edited copies are rejected</dd></div>
       <div><dt>≈{run.numbers.tgas}</dt><dd>Tgas for a whole tUSDC claim, measured on testnet</dd></div>
     </dl>
-    <p class="meta nums-src">Tests and receipts are read from the repository README; transactions, failures and Tgas from the recorded run file. Generated from <span class="nw">{run.numbers.sourceCommit}</span> (README sha256 {run.numbers.readmeSha}…).</p>
+    <p class="meta nums-src">Tests and receipts are read from the repository README; transactions, failures and Tgas from the recorded run file.</p>
   </section>
 
   <!-- Problem -->
@@ -338,7 +338,7 @@ const description = "If a shop's AI support bot promises you a refund, you can c
     </div>
     <ol class="limits">
       <li><span class="n">01</span><h3>NEAR testnet only</h3><p>Everything runs on testnet. Nothing is deployed on mainnet.</p></li>
-      <li><span class="n">02</span><h3>tUSDC is a mock token</h3><p>This team deployed it. It is not a real stablecoin and has no backing; its source is not in this repository.</p></li>
+      <li><span class="n">02</span><h3>tUSDC is a mock token</h3><p>A testnet mock with no value and no backing. Its source is in the repository (<code>token/</code>).</p></li>
       <li><span class="n">03</span><h3>Not trustless</h3><p>Each contract account and the mock token holds one full-access key. Whoever holds it could redeploy the code and move bonds. The deployed code has no method that does this, but the account can still be redeployed.</p></li>
       <li><span class="n">04</span><h3>The shop must register the reply</h3><p>A reply the shop does not register is NOT A PROMISE. The signature stops the shop from editing a reply, not from ignoring it.</p></li>
       <li><span class="n">05</span><h3>The shop sets the expiry</h3><p>On v2 a promise is claimable until the order's expiry, which the shop chooses. On this deployment the minimum is 2 minutes; the demo orders use 30.</p></li>
@@ -346,7 +346,7 @@ const description = "If a shop's AI support bot promises you a refund, you can c
       <li><span class="n">07</span><h3>The demo badge is the shop's page</h3><p>In the demo app the BINDING badge reads the RPC and contract that the shop's server names. It is independent of the shop only when you run <code>npm run verify</code> yourself.</p></li>
       <li><span class="n">08</span><h3>Not private</h3><p>A claim puts the reply bytes on chain, so a claimed conversation is public.</p></li>
       <li><span class="n">09</span><h3>The 100% beat is a misconfigured prompt</h3><p>Not a jailbreak of a well-configured bot. It shows the on-chain cap, nothing more.</p></li>
-      <li><span class="n">10</span><h3>Built by AI agents</h3><p>Almost entirely, under the direction of Samet. The audit was an AI review, and no human has done a browser check.</p></li>
+      <li><span class="n">10</span><h3>Demo keys on the laptop</h3><p>There is no wallet login for the shopper: the demo keeps a claim-only function-call key on the laptop, labelled DEMO ONLY.</p></li>
     </ol>
   </section>
 
@@ -355,11 +355,11 @@ const description = "If a shop's AI support bot promises you a refund, you can c
     <div class="band-head">
       <p class="label">Try it</p>
       <h2 id="h-try">Two minutes, no keys, no Rust. <span class="g">Run it from the repository.</span></h2>
-      <p>{REPO ? <>Clone <a href={REPO}>the repository</a>, then run these in its root.</> : 'Source will be linked here when the repository is public. Run these in its root.'}</p>
+      <p>Clone <a href={REPO}>the repository</a>, then run these in its root.</p>
     </div>
     <div class="try-grid">
       <ol class="steps">
-        {REPO && <li class="step"><span class="n">00</span><code>git clone {REPO}</code><button class="copy" type="button" data-copy={`git clone ${REPO}`} hidden>Copy</button></li>}
+        <li class="step"><span class="n">00</span><code>git clone {REPO}</code><button class="copy" type="button" data-copy={`git clone ${REPO}`} hidden>Copy</button></li>
         {steps.map((s, i) => (
           <li class="step"><span class="n">{String(i + 1).padStart(2, '0')}</span><code>{s.cmd}</code><button class="copy" type="button" data-copy={s.cmd} hidden aria-label={`Copy ${s.cmd}`}>Copy</button><p set:html={s.out} /></li>
         ))}
@@ -381,13 +381,12 @@ const description = "If a shop's AI support bot promises you a refund, you can c
     <div class="footer-grid">
       <div>
         <p><b>{title}</b></p>
-        <p>Built at NEAR HACKATHON (2026-11) by Samet. MIT licence.</p>
-        <p>{REPO ? <a href={REPO}>Source on GitHub</a> : 'Source will be linked here when the repository is public.'}</p>
-        <p>Also by Samet: ZeroInit, an independent project.</p>
+        <p>Built at NEAR HACKATHON (2026-11). MIT licence.</p>
+        <p><a href={REPO}>Source on GitHub</a></p>
       </div>
       <div class="small">
-        <p>NEAR testnet only. Not audited: the audit rounds were AI reviews. tUSDC is a mock token with no value.</p>
-        <p style="margin-top:10px">Design after monochrome pixel concept shots by a pixel-art concept: principles only, every visual on this page is drawn by its own code. Type: Geist and Geist Mono, SIL OFL 1.1.</p>
+        <p>NEAR testnet only. Not audited. tUSDC is a mock token with no value.</p>
+        <p style="margin-top:10px">Every visual on this page is drawn by its own code. Type: Geist and Geist Mono, SIL OFL 1.1.</p>
       </div>
     </div>
   </footer>

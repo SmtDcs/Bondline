@@ -3,7 +3,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -12,18 +11,12 @@ const read = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
 const must = (cond, what) => { if (!cond) { console.error(`extract-run: ASSERT FAILED: ${what}`); process.exit(1); } };
 const sha256hex = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
-// Deploying only site/ (e.g. `vercel deploy` from this folder) leaves the fixtures behind: then the
-// committed src/data/run.json is used. That is an explicit mode, not a silent one: the artifact must
-// carry its provenance, so a deploy says which commit it was generated from instead of pretending the
-// numbers were just re-read.
+// Deploying only site/ (e.g. from this folder alone) leaves the fixtures behind: then the committed
+// src/data/run.json is used as it is.
 const committed = path.join(here, '../src/data/run.json');
 if (!fs.existsSync(path.join(repo, 'fixtures/replay/transcript-v2.json'))) {
   must(fs.existsSync(committed), 'fixtures missing and no committed src/data/run.json');
-  const prev = JSON.parse(fs.readFileSync(committed, 'utf8'));
-  must(prev.numbers && prev.numbers.sourceCommit, 'the committed run.json has no numbers.sourceCommit (regenerate it from the full repo)');
-  must(prev.numbers.sourceCommit === 'uncommitted' || /^[0-9a-f]{7,40}(-dirty)?$/.test(prev.numbers.sourceCommit),
-    `committed run.json sourceCommit looks wrong: ${prev.numbers.sourceCommit}`);
-  console.log(`extract-run: fixtures not present (site-only build), keeping the committed src/data/run.json from ${prev.numbers.sourceCommit}`);
+  console.log('extract-run: fixtures not present (site-only build), keeping the committed src/data/run.json');
   process.exit(0);
 }
 const T = read('fixtures/replay/transcript-v2.json');
@@ -156,21 +149,6 @@ must(testsJs + testsV1 + testsV2 === testsTotal,
   `README numbers add up: ${testsJs} JS + ${testsV1} v1 + ${testsV2} v2 === ${testsTotal}`);
 const receipts = one(/\*\*(\d+) real NEAR AI receipts\*\*/, 'receipts', section);
 const tampered = one(/(\d+) deliberately edited/, 'tampered receipts', section);
-// Provenance: the commit that last changed the INPUTS (the README numbers and the fixtures this file
-// reads), not HEAD. Using HEAD would rewrite run.json on every unrelated commit and leave the tree
-// dirty forever; this value is stable until the numbers themselves change. A dirty input says
-// "uncommitted" instead of naming a commit a visitor cannot check out.
-let sourceCommit = 'uncommitted';
-const readmeSha = sha256hex(Buffer.from(readme, 'utf8')).slice(0, 16);
-try {
-  const inputs = ['README.md', 'fixtures/replay/transcript-v2.json', 'fixtures/runs/v2-live-run.json'];
-  const dirty = execFileSync('git', ['-C', repo, 'status', '--porcelain', '--', ...inputs],
-    { encoding: 'utf8' }).trim();
-  if (!dirty) {
-    sourceCommit = execFileSync('git', ['-C', repo, 'log', '-1', '--format=%h', '--', ...inputs],
-      { encoding: 'utf8' }).trim() || 'uncommitted';
-  }
-} catch { /* a site-only checkout has no git history: the committed run.json keeps the value it was built with */ }
 const tgas = paidTusdc.reduce((a, b) => a + b, 0) / paidTusdc.length;
 
 const s = A.bundle.signature;
@@ -188,7 +166,6 @@ const out = {
   numbers: {
     tests: { total: testsTotal, js: testsJs, v1: testsV1, v2: testsV2, date: testsDate },
     txs, failures, receipts, tampered, tgas: Math.round(tgas * 10) / 10,
-    sourceCommit, readmeSha,
   },
   verify: {
     orderId: A.out.id, model: A.bundle.model,

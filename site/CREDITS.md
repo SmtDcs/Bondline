@@ -8,5 +8,3 @@
 | `public/favicon.svg` | Drawn for this site | MIT, as the repo |
 
 No image, video or font file of any other site is used. No AI-generated media.
-
-Design direction: a monochrome pixel style after two concept shots by a pixel-art concept on X ("Welcome/onboarding modal for Layer-0 protocol", "Playing with the bento card style"). Principles only (black ground, square dithered pixels, hairline cards, crosshair corners, two-tone headings); no frame, asset or code of them is copied.

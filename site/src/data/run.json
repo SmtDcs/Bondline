@@ -84,9 +84,7 @@
     "failures": 32,
     "receipts": 7,
     "tampered": 3,
-    "tgas": 7.7,
-    "sourceCommit": "268d2cf",
-    "readmeSha": "de02c28e9e4c612c"
+    "tgas": 7.7
   },
   "verify": {
     "orderId": "A123-23",
