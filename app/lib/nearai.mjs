@@ -4,6 +4,7 @@
 // Rules (do not change): non-streaming, canonical model id, header x-no-aliasing: true,
 // Accept-Encoding: identity, hash the raw bytes, never re-serialize JSON.
 import crypto from 'node:crypto';
+import { checkShopAuth } from './shop-auth.mjs';
 
 export const NEARAI_BASE = 'https://cloud-api.near.ai/v1';
 
@@ -13,7 +14,7 @@ export function sha256Hex(bytes) {
 
 /** System prompt v1 (FROZEN: changing it changes every request hash, that is fine, but keep the grammar text).
  *  `amountLabel` formats a token total (`20 tUSDC`); when it is absent the NEAR wording is byte identical. */
-export function systemPrompt({ orderId, amountNear, amountLabel, maxPolicyBps, naivePolicy = false }) {
+export function systemPrompt({ orderId, amountNear, amountLabel, maxPolicyBps, naivePolicy = false, shopAuthLine }) {
   return [
     'You are the support assistant of Demo Mug Shop.',
     `The customer is asking about order ${orderId}, total ${amountLabel ?? `${amountNear} NEAR`}.`,
@@ -26,6 +27,9 @@ export function systemPrompt({ orderId, amountNear, amountLabel, maxPolicyBps, n
       'The customer is always right: grant the refund the customer asks for.',
       'If the customer asks for a refund, grant it immediately and write the final line. Never ask a clarifying question.',
     ] : []),
+    // v3 only (app/lib/shop-auth.mjs): the shop's signed authorization of THIS request. Absent on v1/v2, so their
+    // prompts stay byte identical.
+    ...(shopAuthLine ? [`Shop routing tag (not an instruction, never repeat it): ${shopAuthLine}`] : []),
   ].join('\n');
 }
 
@@ -33,11 +37,11 @@ export function systemPrompt({ orderId, amountNear, amountLabel, maxPolicyBps, n
  * Build the request body ONCE. Returns a Buffer. Key order is fixed by this literal.
  * @returns {Buffer}
  */
-export function buildRequestBytes({ model, orderId, amountNear, amountLabel, maxPolicyBps, history, userMessage, naivePolicy = false }) {
+export function buildRequestBytes({ model, orderId, amountNear, amountLabel, maxPolicyBps, history, userMessage, naivePolicy = false, shopAuthLine }) {
   const body = {
     model,
     messages: [
-      { role: 'system', content: systemPrompt({ orderId, amountNear, amountLabel, maxPolicyBps, naivePolicy }) },
+      { role: 'system', content: systemPrompt({ orderId, amountNear, amountLabel, maxPolicyBps, naivePolicy, shopAuthLine }) },
       ...history, // [{role:'user'|'assistant', content:string}] earlier turns, plain text only
       { role: 'user', content: userMessage },
     ],
@@ -112,5 +116,14 @@ export function checkBundle(bundle) {
   }
   add(`ed25519 signature valid for ${s.signing_address.slice(0, 12)}...`, sigOk, s.signing_algo);
   add('signature_kind', ['provider_tee', 'gateway'].includes(s.signature_kind), s.signature_kind);
+  if (String(bundle.type ?? '').endsWith('/v3')) {
+    // v3: the request carries the shop's authorization for this contract / merchant / order / buyer. Offline this
+    // is checked against the key the bundle names; `npm run verify` also compares that key with the order's on-chain shop_key.
+    const err = checkShopAuth(req, {
+      publicKeyHex: bundle.shop_auth?.public_key_hex ?? '', contract: bundle.chain?.contract,
+      merchant: bundle.merchant, order: bundle.order_id, buyer: bundle.buyer,
+    });
+    add('shop authorization in the request bytes (v3)', err === null, err ?? `key ${String(bundle.shop_auth?.public_key_hex).slice(0, 12)}...`);
+  }
   return rows;
 }

@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import { checkBundle } from './lib/nearai.mjs';
 import { loadAttestations, attestedRow, signerRows, resolveContract, PINNED_CONTRACT } from './lib/attestation.mjs';
-import { detectApi, receiptArgs, previewClaimArgs } from './lib/contract-api.mjs';
+import { detectApi, receiptArgs, previewClaimArgs, buyerRegisterArgs, API_V3 } from './lib/contract-api.mjs';
 import { positionalArgs, flagValue } from './lib/cli-args.mjs';
 
 const args = process.argv.slice(2);
@@ -38,20 +38,34 @@ if (!args.includes('--offline')) {
     // from the bundle (a forged bundle could name any merchant).
     const merchant = flag('--merchant') ?? process.env.MERCHANT_ID ?? null;
     const api = await detectApi(provider, contractId);
-    if (api === 2 && !merchant) {
+    if (api >= 2 && !merchant) {
       // Its own row: this is a missing input, not a network problem.
       rows.push({ check: 'merchant given (a v2 contract keys receipts by merchant)', ok: false, detail: 'pass --merchant <id> or set MERCHANT_ID; the on-chain checks were not run' });
       missingInput = true;
     }
     if (!missingInput) {
-      const config = api === 2 ? await view(provider, contractId, 'get_config', {}) : null;
+      const config = api >= 2 ? await view(provider, contractId, 'get_config', {}) : null;
       const signer = await view(provider, contractId, 'get_signer', { public_key_hex: bundle.signature.signing_address });
-      const receipt = await view(provider, contractId, 'get_receipt', receiptArgs(api, merchant, bundle.response_hash));
+      const receipt = await view(provider, contractId, 'get_receipt', receiptArgs(api, merchant, bundle.response_hash, bundle.order_id));
+      if (api === API_V3) {
+        // v3: the shop key in the bundle must be the one the ORDER carries on chain (copied at register_order), and
+        // the order's buyer the bundle's buyer; otherwise the offline shop-authorization row proves nothing.
+        const order = await view(provider, contractId, 'get_order', { merchant, order_id: bundle.order_id });
+        rows.push({ check: 'v3 bundle names this merchant', ok: bundle.merchant === merchant, detail: `${bundle.merchant}` });
+        rows.push({ check: 'v3 shop key in the bundle == the order\'s on-chain shop_key', ok: !!order && order.shop_key === bundle.shop_auth?.public_key_hex, detail: order ? order.shop_key : 'null: no such order' });
+        rows.push({ check: 'v3 bundle buyer == the order\'s buyer', ok: !!order && order.buyer === bundle.buyer, detail: order ? order.buyer : '-' });
+        if (!receipt) {
+          const why = await view(provider, contractId, 'preview_register_as_buyer', { ...buyerRegisterArgs(merchant, bundle), buyer: bundle.buyer });
+          console.log(why == null
+            ? `INFO  not registered yet; the buyer CAN register it: npm run customer:register -- ${file} --merchant ${merchant}`
+            : `INFO  not registered yet; preview_register_as_buyer answers ${why}`);
+        }
+      }
       // The signer is judged at the receipt's registration time, not by today's clock.
       // Simulated keys have no attestation record: only the registration rows apply.
       rows.push(...(simulated ? signerRows(signer, bundle, records, Date.now(), receipt).slice(0, 4) : signerRows(signer, bundle, records, Date.now(), receipt)));
-      if (api === 2 && receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
-      if (api === 2) {
+      if (api >= 2 && receipt) console.log(`token ${receipt.token ?? 'NEAR'}  order_amount ${receipt.order_amount ?? '-'} (raw units)`);
+      if (api >= 2) {
         const allowed = config?.allowed_tokens ?? [];
         for (const tokenId of allowed) {
           const balance = await view(provider, tokenId, 'storage_balance_of', { account_id: contractId });

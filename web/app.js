@@ -20,8 +20,10 @@ export const BINDING_RETRY = { retries: 4, delayMs: 1500, recheckRetries: 2 };
 const EDIT_FROM = 'bps=2000';
 const EDIT_TO = 'bps=3000';
 
-/** v2 detected (get_config api:2). v1 keeps the old argument shapes and the NEAR-only display. */
-export const isV2 = () => CFG?.contract_api === 2;
+/** v2 or v3 detected (get_config api:2|3): merchant-keyed shapes and tokens. v1 keeps the old shapes and NEAR-only display. */
+export const isV2 = () => CFG?.contract_api === 2 || CFG?.contract_api === 3;
+/** v3: receipts keyed by order, and the customer can register a reply the shop did not (register_receipt_as_buyer). */
+export const isV3 = () => CFG?.contract_api === 3;
 
 export function tokenMetaFor(tokenId, tokens = CFG?.tokens) {
   if (!tokenId) return null;
@@ -37,7 +39,8 @@ export function formatAsset(raw, tokenId, tokens = CFG?.tokens) {
   return `${formatAmount(String(raw ?? 0), meta.decimals)} ${meta.symbol}`;
 }
 
-export function receiptArgs(responseHash) {
+export function receiptArgs(responseHash, orderId) {
+  if (isV3()) return { merchant: CFG.merchantId, order_id: orderId, response_hash: responseHash };
   return isV2() ? { merchant: CFG.merchantId, response_hash: responseHash } : { response_hash: responseHash };
 }
 export function previewArgs(orderId, responseB64) {
@@ -75,7 +78,7 @@ export async function bindingStatus(orderId, responseB64, recordedViews, { retri
   let receipt = null;
   for (let attempt = 0; ; attempt++) {
     try {
-      receipt = await rpcView('get_receipt', receiptArgs(hash));
+      receipt = await rpcView('get_receipt', receiptArgs(hash, orderId));
     } catch (err) {
       if (attempt >= retries) throw err;
     }
@@ -592,11 +595,66 @@ async function checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries 
     view = { cls: 'error', text: err.message };
     setBadge(bot.status, view);
   }
+  // v3: the shop did not register this reply (NOT A PROMISE), but the page holds its signed bundle: the customer
+  // can register it. The contract decides whether the bundle counts (the shop's authorization in the request).
+  if (isV3() && view.cls === 'error' && /NOT A PROMISE/.test(view.text) && !(OFFLINE && CFG?.mode === 'replay')) {
+    // Ask the contract itself (a view, through the page's RPC) whether this bundle would be accepted from the buyer.
+    const why = await rpcView('preview_register_as_buyer', customerPreviewArgs(data.bundle, CFG.buyerId)).catch((err) => `RPC: ${err.message}`);
+    if (why == null) addCustomerRegister(bot, { orderId, data, tokenId, expiresAtMs });
+    else bot.meta.append(element('span', 'badge error', `you cannot register this reply: ${why}`));
+  }
   if (view.cls !== 'binding' && !(OFFLINE && CFG?.mode === 'replay')) {
     const btn = element('button', 'recheck', 'Re-check');
     btn.addEventListener('click', () => checkBinding(bot, { orderId, data, tokenId, expiresAtMs, retries: BINDING_RETRY.recheckRetries }));
     bot.row.recheckButton = btn;
     bot.meta.append(btn);
+  }
+}
+
+/** v3: the arguments of the contract's preview_register_as_buyer view for a bundle and the buyer. */
+export function customerPreviewArgs(bundle, buyerId) {
+  return {
+    merchant: CFG.merchantId, order_id: bundle.order_id, buyer: buyerId, request_b64: bundle.request_b64,
+    signed_text: bundle.signature?.text, signature_hex: bundle.signature?.signature, signer_public_key_hex: bundle.signature?.signing_address,
+  };
+}
+
+/** The body of the v3 customer-path request: the bundle exactly as the bot server returned it. */
+export function customerRegisterBody(orderId, bundle) {
+  return { order_id: orderId, bundle };
+}
+
+/** v3: "Register it myself" (demo: the buyer's key on the server, like Claim; without the server:
+ *  `npm run customer:register -- <bundle.json>`). */
+function addCustomerRegister(bot, ctx) {
+  if (bot.row.customerRegisterButton) return;
+  const btn = element('button', 'customer-register', 'Register it myself');
+  btn.addEventListener('click', () => customerRegister(bot, btn, ctx));
+  bot.row.customerRegisterButton = btn;
+  bot.meta.append(btn);
+}
+
+export async function customerRegister(bot, btn, ctx) {
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/demo/customer-register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(customerRegisterBody(ctx.orderId, ctx.data.bundle)),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setBadge(bot.status, { cls: 'error', text: `customer registration refused: ${data.error ?? `HTTP ${res.status}`}` });
+      return;
+    }
+    if (data.explorer) bot.links.append(link('customer receipt tx', data.explorer));
+    btn.remove?.();
+    bot.row.customerRegisterButton = null;
+    await checkBinding(bot, { ...ctx, retries: BINDING_RETRY.retries });
+  } catch (err) {
+    showToast(err.message, null, 'toast error');
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -643,6 +701,11 @@ async function onSubmit(event) {
     renderReply(bot.bubble, shown);
     if (data.explorer) bot.links.append(link('receipt tx', data.explorer));
     if (data.bundle?.simulated) bot.meta.append(element('span', 'badge simulated', 'SIMULATED'));
+    // v3: every reply must arrive with its signed bundle; say so, and say it loudly when it did not.
+    if (isV3()) {
+      const full = !!(data.bundle?.request_b64 && data.bundle?.response_b64 && data.bundle?.signature?.signature);
+      bot.meta.append(element('span', full ? 'badge' : 'badge error', full ? 'signed bundle received' : 'NO SIGNED BUNDLE: the shop withheld it'));
+    }
     // Say out loud that this order's bot is the badly configured one.
     if (isNaiveOrder(CFG.orders, orderId)) bot.meta.append(element('span', 'badge naive', NAIVE_LABEL));
     updateRegisterEdited();

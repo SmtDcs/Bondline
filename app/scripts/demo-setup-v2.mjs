@@ -40,7 +40,8 @@ if (dry) {
 }
 
 const provider = makeProvider(env.NEAR_RPC_URL ?? 'https://rpc.testnet.fastnear.com');
-if ((await detectApi(provider, contractId)) !== 2) throw new Error(`${contractId} is not a v2 contract`);
+// v3 (contract-v3) takes the same steps; its merchant needs a shop key first (app/scripts/deploy-v3.mjs sets it).
+if (![2, 3].includes(await detectApi(provider, contractId))) throw new Error(`${contractId} is not a v2 or v3 contract`);
 if (tokenId && (await retry(() => storageBalanceOf(provider, tokenId, contractId))) === null) {
   console.error(`the market ${contractId} is not registered on ${tokenId}: run its storage_deposit first (docs/DEPLOY.md)`);
   process.exit(1);

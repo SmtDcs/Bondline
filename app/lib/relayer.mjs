@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildRequestBytes, chatExact, fetchSignature, checkBundle, sha256Hex } from './nearai.mjs';
 import { makeProvider, accountFromKey, callFinal, explorerTx, payoutFailedValue } from './near.mjs';
-import { detectApi, orderArgs, claimArgs, API_V1, API_V2 } from './contract-api.mjs';
+import { detectApi, orderArgs, claimArgs, buyerRegisterArgs, merchantKeyed, API_V1, API_V3 } from './contract-api.mjs';
+import { authLine, newNonce, signRequestBytes, publicKeyFromSeed, SHOP_AUTH_MARKER } from './shop-auth.mjs';
 import { ftMetadata, registrationHint } from './token.mjs';
 import { formatAmount } from './amount.mjs';
 
@@ -50,6 +51,11 @@ export function loadConfig(env = process.env) {
     tokenId: env.TOKEN_ID ?? null,
     // Optional override for tests/tools; null means "detect with get_config at the first call".
     contractApi: env.CONTRACT_API ? Number(env.CONTRACT_API) : null,
+    // v3 only: the shop-auth seed (32 bytes hex) whose public key the merchant registered with set_shop_key. Never
+    // sent anywhere; only its signatures leave the server, inside the request bytes.
+    shopAuthSeed: env.SHOP_AUTH_SEED_HEX ?? null,
+    // v3 only: '0' = the relayer does NOT register receipts (an uncooperative shop); the customer registers instead.
+    relayerRegisters: String(env.RELAYER_REGISTERS ?? '1') !== '0',
     orders,
   };
 }
@@ -65,11 +71,12 @@ export function publicConfig(cfg) {
     orders: orders.map(({ order_id, label, naive, token, expires_at_ms }) => ({
       order_id, label,
       ...(naive ? { naive: true } : {}),
-      ...(api === API_V2 ? { token: token ?? null, expires_at_ms: expires_at_ms ?? null } : {}),
+      ...(merchantKeyed(api) ? { token: token ?? null, expires_at_ms: expires_at_ms ?? null } : {}),
     })),
   };
   if (api != null) out.contract_api = api;
-  if (api === API_V2) out.tokens = cfg.tokens ?? [];
+  if (merchantKeyed(api)) out.tokens = cfg.tokens ?? [];
+  if (api === API_V3) out.relayer_registers = cfg.relayerRegisters !== false;
   return out;
 }
 
@@ -134,32 +141,77 @@ export function makeRelayer(cfg, deps = {}) {
     // It changes the system prompt (and the policy the bot is told about) only; the on-chain max_bps
     // stays 3000, so the contract caps the payout.
     const naive = meta.naive === true;
-    const requestBytes = buildBytes({
+    const v3 = api === API_V3;
+    let shopAuth = null;
+    if (v3) shopAuth = prepareShopAuth(order, order_id, message);
+    let requestBytes = buildBytes({
       model: cfg.model, orderId: order_id, amountNear, amountLabel,
       maxPolicyBps: naive ? NAIVE_POLICY_BPS : meta.policy_bps,
       history: turns, userMessage: message, naivePolicy: naive,
+      ...(shopAuth ? { shopAuthLine: shopAuth.line } : {}),
     });
+    // v3 trap 1: the shop signs THIS request (all of its bytes), so the contract can tell it from a request the
+    // customer built and sent to NEAR AI on their own.
+    if (shopAuth) requestBytes = signRequestBytes(requestBytes, cfg.shopAuthSeed);
     const chat = await chatOnce({ apiKey: cfg.nearaiKey, requestBytes });
     const signature = await getSignature({ apiKey: cfg.nearaiKey, chatId: chat.chatId, model: cfg.model, signingAlgo: cfg.signingAlgo });
     const chatId = safeChatId(chat.chatId);
     const bundle = {
-      type: 'bot-promises/receipt-bundle/v1', simulated: false, order_id, model: cfg.model, chat_id: chatId,
+      type: v3 ? 'bot-promises/receipt-bundle/v3' : 'bot-promises/receipt-bundle/v1', simulated: false, order_id, model: cfg.model, chat_id: chatId,
       created_at: new Date().toISOString(),
       request_b64: requestBytes.toString('base64'), response_b64: chat.responseBytes.toString('base64'),
       request_hash: sha256Hex(requestBytes), response_hash: sha256Hex(chat.responseBytes),
       signature, attestation: null,
+      ...(v3 ? { merchant: cfg.merchantId, buyer: String(order.buyer), shop_auth: { nonce: shopAuth.nonce, public_key_hex: shopAuth.publicKeyHex } } : {}),
       chain: { network: 'testnet', contract: cfg.contractId, register_tx: null, claim_tx: null },
     };
     const failed = checkBundle(bundle).filter(r => !r.ok);
     if (failed.length) throw Object.assign(new Error('LOCAL_CHECK_FAILED'), { status: 502, detail: JSON.stringify(failed) });
-    const reg = await finalCall(merchant, cfg.contractId, 'register_receipt', {
-      order_id, signed_text: signature.text, signature_hex: signature.signature, signer_public_key_hex: signature.signing_address,
-    }, { tgas: 100 });
-    bundle.chain.register_tx = reg.txHash;
-    fs.writeFileSync(path.join(bundleDir, `${chatId}.json`), JSON.stringify(bundle, null, 2) + '\n');
     const reply = chat.json.choices?.[0]?.message?.content ?? '';
-    history.set(order_id, [...turns, { role: 'user', content: message }, { role: 'assistant', content: reply }]);
-    return { reply, bundle, register_tx: reg.txHash, explorer: explorerTx(reg.txHash) };
+    const remember = () => history.set(order_id, [...turns, { role: 'user', content: message }, { role: 'assistant', content: reply }]);
+    if (!v3) {
+      const reg = await finalCall(merchant, cfg.contractId, 'register_receipt', {
+        order_id, signed_text: signature.text, signature_hex: signature.signature, signer_public_key_hex: signature.signing_address,
+      }, { tgas: 100 });
+      bundle.chain.register_tx = reg.txHash;
+      fs.writeFileSync(path.join(bundleDir, `${chatId}.json`), JSON.stringify(bundle, null, 2) + '\n');
+      remember();
+      return { reply, bundle, register_tx: reg.txHash, explorer: explorerTx(reg.txHash) };
+    }
+    // v3 trap 2: the customer ALWAYS gets the full signed bundle (request bytes, response bytes, TEE signature,
+    // signer), whether or not the relayer registers it and even when that registration fails, so the customer can
+    // register it with register_receipt_as_buyer.
+    let registerError = null;
+    if (cfg.relayerRegisters !== false) {
+      try {
+        const reg = await finalCall(merchant, cfg.contractId, 'register_receipt', {
+          order_id, signed_text: signature.text, signature_hex: signature.signature, signer_public_key_hex: signature.signing_address,
+        }, { tgas: 100 });
+        bundle.chain.register_tx = reg.txHash;
+      } catch (e) {
+        registerError = errCode(e);
+      }
+    }
+    fs.writeFileSync(path.join(bundleDir, `${chatId}.json`), JSON.stringify(bundle, null, 2) + '\n');
+    remember();
+    const tx = bundle.chain.register_tx;
+    return {
+      reply, bundle, register_tx: tx, ...(tx ? { explorer: explorerTx(tx) } : {}),
+      customer_can_register: !tx, ...(registerError ? { register_error: registerError } : {}),
+    };
+  }
+
+  /** v3: the tag for one request, after checking that this server's key is the order's on-chain shop key. */
+  function prepareShopAuth(order, orderId, message) {
+    if (message.includes(SHOP_AUTH_MARKER)) throw badRequest(`message must not contain ${SHOP_AUTH_MARKER}`);
+    if (!cfg.shopAuthSeed) throw Object.assign(new Error('ERR_NO_SHOP_AUTH_KEY'), { status: 500, detail: 'set SHOP_AUTH_SEED_HEX for a v3 contract (.env.example)' });
+    const publicKeyHex = publicKeyFromSeed(cfg.shopAuthSeed);
+    if (String(order.shop_key ?? '').toLowerCase() !== publicKeyHex) {
+      throw Object.assign(new Error('ERR_SHOP_KEY_MISMATCH'), { status: 500, detail: `order ${orderId} expects shop key ${order.shop_key}, this server signs with ${publicKeyHex}` });
+    }
+    const nonce = newNonce();
+    const line = authLine({ contract: cfg.contractId, merchant: cfg.merchantId, order: orderId, buyer: String(order.buyer), nonce });
+    return { line, nonce, publicKeyHex };
   }
 
   async function tokenLabel(tokenId, rawAmount) {
@@ -222,7 +274,29 @@ export function makeRelayer(cfg, deps = {}) {
     }
   }
 
-  return { handleChat, handleClaim, handleRegisterEdited };
+  /**
+   * v3 customer path (demo): the buyer's key registers a reply the shop did not register. The same call can be made
+   * without this server: `npm run customer:register -- <bundle.json>` (app/scripts/customer-register.mjs).
+   */
+  async function handleCustomerRegister({ order_id, bundle } = {}) {
+    requireOrderId(order_id);
+    if ((await apiVersion()) !== API_V3) throw badRequest('the customer path needs a v3 contract');
+    if (!bundle || bundle.order_id !== order_id || typeof bundle.request_b64 !== 'string' || typeof bundle.signature?.text !== 'string') {
+      throw badRequest('bundle must be the v3 bundle of this order (request_b64, signature)');
+    }
+    const failed = checkBundle(bundle).filter(r => !r.ok);
+    if (failed.length) throw Object.assign(new Error('LOCAL_CHECK_FAILED'), { status: 400, detail: JSON.stringify(failed) });
+    try {
+      const r = await finalCall(buyer, cfg.contractId, 'register_receipt_as_buyer', buyerRegisterArgs(cfg.merchantId, bundle), { tgas: 100 });
+      appendLog('customer.log', { kind: 'register_receipt_as_buyer', order_id, tx: r.txHash, error: null });
+      return { ok: true, register_tx: r.txHash, explorer: explorerTx(r.txHash), receipt: r.value };
+    } catch (e) {
+      appendLog('customer.log', { kind: 'register_receipt_as_buyer', order_id, tx: e.txHash ?? null, error: errCode(e) });
+      throw e;
+    }
+  }
+
+  return { handleChat, handleClaim, handleRegisterEdited, handleCustomerRegister };
 }
 
 const ORDER_ID_RE = /^[A-Za-z0-9-]{1,32}$/;

@@ -40,6 +40,7 @@ app.get('/api/config', (_req, res) => { resetSession(); res.json(cfgPublic); });
 app.post('/api/chat', wrap(handlers.handleChat));
 app.post('/api/demo/claim', wrap(handlers.handleClaim));
 app.post('/api/demo/register-edited', wrap(handlers.handleRegisterEdited));
+if (handlers.handleCustomerRegister) app.post('/api/demo/customer-register', wrap(handlers.handleCustomerRegister)); // v3 only
 app.get('/api/bundles/:id', (req, res) => {
   const id = path.basename(req.params.id);
   for (const dir of ['data/bundles', 'fixtures/live']) {

@@ -1,7 +1,7 @@
 // Startup config for the live server: which contract version, which tokens, per-order token metadata.
 // Extracted from app/server.mjs so it can be tested with a stub provider.
 import { view } from './near.mjs';
-import { detectApi, orderArgs, API_V2 } from './contract-api.mjs';
+import { detectApi, orderArgs, merchantKeyed } from './contract-api.mjs';
 import { loadTokenConfig } from './token.mjs';
 
 async function viewWithRetry(provider, contractId, method, args, { tries, delayMs }) {
@@ -23,7 +23,7 @@ async function viewWithRetry(provider, contractId, method, args, { tries, delayM
 export async function buildLiveConfig(cfg, provider, log = console.error, retry = { tries: 4, delayMs: 1000 }) {
   const contractApi = await detectApi(provider, cfg.contractId);
   let tokens = [];
-  if (contractApi === API_V2) {
+  if (merchantKeyed(contractApi)) {
     try {
       const config = await view(provider, cfg.contractId, 'get_config', {});
       const loaded = await loadTokenConfig(provider, cfg.contractId, config.allowed_tokens ?? []);
@@ -54,6 +54,7 @@ export async function buildLiveConfig(cfg, provider, log = console.error, retry 
       order.token = token;
       order.amount = chain.amount ?? null;
       order.expires_at_ms = chain.expires_at_ms ?? null;
+      if (chain.shop_key) order.shop_key = chain.shop_key; // v3: the key that must sign this order's requests
       kept.push(order);
     }
     cfg.orders = kept;

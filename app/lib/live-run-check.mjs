@@ -7,7 +7,7 @@ const BASE58_HASH = /^[1-9A-HJ-NP-Za-km-z]{43,44}$/;
 /** Problems with the recorded run as a list of strings (empty = well formed). */
 export function checkLiveRunStructure(data) {
   const problems = [];
-  if (data?.type !== 'bot-promises/live-run/v2') problems.push('type must be bot-promises/live-run/v2');
+  if (!['bot-promises/live-run/v2', 'bot-promises/live-run/v3'].includes(data?.type)) problems.push('type must be bot-promises/live-run/v2 or bot-promises/live-run/v3');
   if (!Array.isArray(data?.txs) || data.txs.length === 0) { problems.push('txs must be a non-empty array'); return problems; }
   const seen = new Set();
   data.txs.forEach((t, i) => {
@@ -20,7 +20,7 @@ export function checkLiveRunStructure(data) {
     if (t.ok === false && !/^ERR_|^[A-Za-z]/.test(String(t.error ?? ''))) problems.push(`${at}: a failed tx must record its error`);
     if (t.ok === true && t.error) problems.push(`${at}: a successful tx has an error`);
     if (!t.signer || !t.receiver || !t.method) problems.push(`${at}: signer/receiver/method missing`);
-    if (!/^L\d+[a-z]?$/.test(String(t.step ?? ''))) problems.push(`${at}: step must look like L7 or L9b`);
+    if (!/^[LV]\d+[a-z]?$/.test(String(t.step ?? ''))) problems.push(`${at}: step must look like L7, L9b or (v3) V2`);
     if (!/^\d+$/.test(String(t.gas_burnt_total ?? ''))) problems.push(`${at}: gas_burnt_total missing`);
     if (!Array.isArray(t.receipts)) problems.push(`${at}: receipts missing`);
     const text = JSON.stringify(t);

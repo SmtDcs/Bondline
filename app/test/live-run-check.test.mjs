@@ -93,7 +93,7 @@ test("the documented '>0' predicate means a positive integer, nothing else passe
 test('a tx whose step label is not an L-step is a problem', () => {
   const d = good();
   d.txs[0].step = 'whatever';
-  assert.match(checkLiveRunStructure(d).join('\n'), /step must look like L7 or L9b/);
+  assert.match(checkLiveRunStructure(d).join('\n'), /step must look like L7, L9b or \(v3\) V2/);
 });
 
 test('diffRecord: a tx relabelled as another signer / receiver / method no longer matches the chain', () => {
