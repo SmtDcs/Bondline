@@ -1,0 +1,401 @@
+---
+import '../styles/global.css';
+import run from '../data/run.json';
+import { ringSvg, storySvg, STORY_VIEWBOX } from '../lib/stills';
+import { STILL_U, type Facts } from '../lib/story-model';
+
+const REPO = (import.meta.env.PUBLIC_REPO_URL ?? '').trim();
+const SITE = (import.meta.env.PUBLIC_SITE_URL ?? '').trim();
+const A = run.orders.a, B = run.orders.b, T = run.token;
+const pct = (bps: number) => bps / 100;
+const fmt = (n: number) => `${+n.toFixed(2)} ${T}`;
+const txUrl = (h: string) => `https://testnet.nearblocks.io/txns/${h}`;
+const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-4)}`;
+const recorded = run.recordedAt.slice(0, 10);
+
+const facts: Facts = {
+  a: { tokenPct: pct(A.tokenBps), capPct: pct(A.maxBps), paidPct: pct(A.paidBps) },
+  b: { tokenPct: pct(B.tokenBps), capPct: pct(B.maxBps), paidPct: pct(B.paidBps) },
+};
+const unit = A.amount / 100;
+const refusalErrors = [run.refusals.tamper.error, run.refusals.edited.error, run.refusals.again.error];
+const storyText = {
+  a: { id: A.id, chips: { none: 'NOT A PROMISE', binding: `BINDING · claimable ${fmt(A.paid)}`, claimed: `CLAIMED · paid ${fmt(A.paid)}`, capped: '', 'paid-capped': '' } },
+  b: { id: B.id, chips: { none: 'NOT A PROMISE', binding: `BINDING · token ${pct(B.tokenBps)}%`, capped: `CAPPED · pays ${pct(B.paidBps)}%`, 'paid-capped': `CLAIMED · paid ${fmt(B.paid)} (cap)`, claimed: '' } },
+  refusals: refusalErrors, token: T, unit,
+};
+
+const heroRing = ringSvg(88, 50, 1);
+const openRing = ringSvg(72, 38, 0.12, 1.2);
+const closedRing = ringSvg(72, 38, 1, 3.4);
+const stills = STILL_U.map((u) => storySvg(u, facts));
+const v = run.verify;
+
+const beats = [
+  { tick: 'Receipt', state: 'Order ' + A.id },
+  { tick: 'Denial', state: 'Order ' + A.id },
+  { tick: 'Claim', state: 'Order ' + A.id },
+  { tick: 'Refusals', state: 'Order ' + A.id },
+  { tick: 'Cap', state: 'Order ' + B.id },
+];
+const stillAlt = [
+  `100 squares, one ${A.amount} ${T} order. The first ${pct(A.maxBps)} are reserved from the bond; ${pct(A.paidBps)} are marked as promised.`,
+  `The ${pct(A.maxBps)} reserved squares are bracketed: they cannot be withdrawn.`,
+  `${pct(A.paidBps)} squares have moved to the shopper; the reservation is released.`,
+  `Squares try to leave the order and are sent back.`,
+  `All 100 squares were promised; only the ${pct(B.maxBps)} above the cap line moved to the shopper.`,
+];
+
+const steps = [
+  { cmd: 'npm ci', out: 'Installs the three direct dependencies. Needs Node 22.22.2 or newer; no .env, no keys.' },
+  { cmd: 'npm run verify:fixtures', out: 'Last line: <code>ALL VERIFIED (7 real bundles + 3 tampered (correctly rejected) + 2 SIMULATED (fake key, not TEE evidence))</code>' },
+  { cmd: 'npm run demo:replay:v2', out: 'Then open <code>http://127.0.0.1:8787/?offline=1</code> and click through this run in the demo app. Nothing is sent to testnet.' },
+  { cmd: 'npm run verify:live-run', out: `Re-reads all ${run.liveRun.txs} recorded v2 transactions from the testnet RPC and compares them: <code>LIVE RUN REPLAYED</code>` },
+];
+const title = 'Claimable bot promises';
+const description = "If a shop's AI support bot promises you a refund, you can collect it from the shop's bond on NEAR, even if the shop later denies it — provided the shop registered the signed reply. Testnet prototype.";
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <meta name="theme-color" content="#0a0a0a" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:type" content="website" />
+  {SITE && <meta property="og:image" content={`${SITE.replace(/\/$/, '')}/og.png`} />}
+  {SITE && <meta property="og:url" content={SITE} />}
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<aside class="status" aria-label="Project status">
+  <div class="wrap">
+    <span><b>NEAR testnet prototype</b></span>
+    <span>Not trustless<span class="long">: the contract accounts hold full-access keys</span></span>
+    <span>tUSDC is a mock token</span>
+  </div>
+</aside>
+
+<header class="header">
+  <div class="wrap">
+    <a class="brand" href="#top"><i aria-hidden="true"></i>{title}</a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#run">The run</a>
+      <a href="#verify">Check it</a>
+      <a href="#near">Contract</a>
+      <a href="#limits">Limits</a>
+      <a href="#try">Try it</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<div class="wrap">
+
+  <!-- Hero -->
+  <section class="hero" id="top" aria-labelledby="h1">
+    <div class="field pix" data-field aria-hidden="true"><canvas></canvas></div>
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="label">NEAR AI TEE · NEAR contract · testnet</p>
+        <h1 id="h1" class="rise">The bot promised a refund. <span class="g">Collect it from the shop's bond, even if the shop denies it later.</span></h1>
+        <p class="lead">Every reply of the shop's support bot is signed inside a NEAR AI TEE. The shop must register that signature on a NEAR contract before the reply reaches you, and the contract pays the promise from the shop's bond, capped by the shop's own on-chain limit.</p>
+        <div class="cta">
+          <a class="btn solid" href="#run">Scroll the recorded run</a>
+          <a class="btn" href="#try">Try it in 2 minutes</a>
+        </div>
+      </div>
+
+      <article class="card hero-card" data-hero-card data-state="binding" aria-label={`Recorded receipt for order ${A.id}`}>
+        <div class="pix" data-ring aria-hidden="true">
+          <svg class="pix-still" viewBox={heroRing.viewBox} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges"><path d={heroRing.dim} fill="#969696" /><path d={heroRing.bright} fill="#f4f4f2" /></svg>
+          <canvas></canvas>
+        </div>
+        <div class="hero-card-body">
+          <p class="label plain">Order {A.id} · {A.amount} {T} · max_bps {A.maxBps}</p>
+          <h2 data-when="binding">Receipt on chain. <span class="g">The promise is binding.</span></h2>
+          <h2 data-when="open">Signed, not registered. <span class="g">Not a promise yet.</span></h2>
+          <div class="row" data-when="binding"><span class="chip" data-kind="ok">BINDING · claimable {fmt(A.paid)}</span><span class="tag">recomputed</span></div>
+          <div class="row" data-when="open"><span class="chip" data-kind="none">NOT A PROMISE</span></div>
+          <code class="tokenline">{A.token}</code>
+          <p class="meta">Recorded on testnet, {recorded} · <span class="nw">{run.contract}</span></p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- Numbers -->
+  <section class="band nums-band" aria-label="Numbers" style="padding:0">
+    <dl class="nums">
+      <div><dt>{run.numbers.tests.total}</dt><dd>tests: {run.numbers.tests.js} JS, {run.numbers.tests.v1} Rust on v1, {run.numbers.tests.v2} Rust on v2, all passed on {run.numbers.tests.date}</dd></div>
+      <div><dt>{run.liveRun.txs}</dt><dd>recorded testnet transactions of the v2 live run, {run.liveRun.failures} of them deliberate failures</dd></div>
+      <div><dt>{run.numbers.receipts}</dt><dd>real NEAR AI receipts verified offline; {run.numbers.tampered} deliberately edited copies are rejected</dd></div>
+      <div><dt>≈{run.numbers.tgas}</dt><dd>Tgas for a whole tUSDC claim, measured on testnet</dd></div>
+    </dl>
+    <p class="meta nums-src">Tests and receipts are read from the repository README; transactions, failures and Tgas from the recorded run file. Generated from <span class="nw">{run.numbers.sourceCommit}</span> (README sha256 {run.numbers.readmeSha}…).</p>
+  </section>
+
+  <!-- Problem -->
+  <section class="band" aria-labelledby="h-problem">
+    <div class="band-head">
+      <p class="label">The problem</p>
+      <h2 id="h-problem">A support bot says 20% refund. <span class="g">The shop says it never did.</span></h2>
+      <p>Support bots promise refunds. Later the shop says “we never said that”, and all you have is a screenshot. Here the reply carries a TEE signature the shop itself must put on chain, and the money behind it is already set aside.</p>
+    </div>
+    <div class="duo">
+      <article class="card motif-card">
+        <div class="pix" aria-hidden="true">
+          <svg class="pix-still" viewBox={openRing.viewBox} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges"><path d={openRing.dim} fill="#969696" /><path d={openRing.bright} fill="#f4f4f2" /></svg>
+        </div>
+        <div class="body">
+          <p class="label plain">Today</p>
+          <h3>A screenshot. <span class="g">Nothing ties the words to money.</span></h3>
+          <p>The shop can deny the chat. The shopper has no way to collect.</p>
+        </div>
+      </article>
+      <article class="card motif-card">
+        <div class="pix" aria-hidden="true">
+          <svg class="pix-still" viewBox={closedRing.viewBox} preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges"><path d={closedRing.dim} fill="#969696" /><path d={closedRing.bright} fill="#f4f4f2" /></svg>
+        </div>
+        <div class="body">
+          <p class="label plain">Here</p>
+          <h3>A registered receipt. <span class="g">The contract pays it.</span></h3>
+          <p>The contract checks the TEE signature, finds the <code>PROMISE</code> line in the signed bytes and pays <code>min(bps, max_bps)</code> of the order from the shop's bond, once per order.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- The recorded run, scroll-tied -->
+  <section class="band story" id="run" aria-labelledby="h-run" data-story data-facts={JSON.stringify(facts)} data-text={JSON.stringify(storyText)}>
+    <div class="band-head story-head">
+      <p class="label">The recorded run</p>
+      <h2 id="h-run">One real run on testnet. <span class="g">Every number comes from the recording.</span></h2>
+      <p>Recorded on {recorded} against <code>{run.contract}</code> with the mock token {T}. Each square is 1% of a {A.amount} {T} order. The shop reserved the first {pct(A.maxBps)} from its bond when it created the order.</p>
+    </div>
+
+    <div class="story-driver">
+      <div class="story-stage">
+        <ol class="beats">
+          <li class="beat is-on">
+            <div class="beat-text">
+              <p class="state">01 · <b>Receipt</b> · order {A.id}</p>
+              <h3>The bot promises {pct(A.tokenBps)}%. <span class="g">The shop registers the signed reply before the shopper sees it.</span></h3>
+              <div class="chat">
+                <p class="msg user"><span class="who">Shopper</span>{A.message}</p>
+                <div class="msg bot"><span class="who">Bot · signed in the TEE</span><span class="txt">{A.reply}</span></div>
+                <code class="tokenline">{A.token}</code>
+              </div>
+              <p class="tx">register_receipt · <a href={txUrl(A.registerTx)}>{short(A.registerTx)}</a> · block {A.block} · testnet</p>
+            </div>
+            <svg class="still" viewBox={STORY_VIEWBOX} role="img" aria-label={stillAlt[0]} set:html={stills[0]} />
+          </li>
+          <li class="beat">
+            <div class="beat-text">
+              <p class="state">02 · <b>Denial</b> · order {A.id}</p>
+              <h3>The shop says “We never promised that.” <span class="g">It does not matter.</span></h3>
+              <p>The contract has no method that deletes a receipt, and the {pct(A.maxBps)}% cap, {fmt(A.reserved)}, was reserved from the bond when the order was created. The shop cannot withdraw it.</p>
+            </div>
+            <svg class="still" viewBox={STORY_VIEWBOX} role="img" aria-label={stillAlt[1]} set:html={stills[1]} />
+          </li>
+          <li class="beat">
+            <div class="beat-text">
+              <p class="state">03 · <b>Claim</b> · order {A.id}</p>
+              <h3>The shopper claims. <span class="g">{fmt(A.paid)} leave the bond.</span></h3>
+              <p><code>claim</code> re-hashes the reply bytes, finds the receipt, reads <code>bps={A.tokenBps}</code> and pays {pct(A.paidBps)}% of {A.amount} {T}. The order's reservation is released.</p>
+              <p class="tx">claim · <a href={txUrl(A.claimTx)}>{short(A.claimTx)}</a> · testnet</p>
+            </div>
+            <svg class="still" viewBox={STORY_VIEWBOX} role="img" aria-label={stillAlt[2]} set:html={stills[2]} />
+          </li>
+          <li class="beat">
+            <div class="beat-text">
+              <p class="state">04 · <b>Refusals</b> · order {A.id}</p>
+              <h3>Three ways to cheat. <span class="g">Three refusals.</span></h3>
+              <ol class="refusals">
+                <li data-refusal="0"><span>The shopper edits <code>2000</code> to <code>3000</code> and claims</span><code>{run.refusals.tamper.error}</code><span class="tx">recomputed from the recorded bytes</span></li>
+                <li data-refusal="1"><span>The shop registers an edited reply</span><code>{run.refusals.edited.error}</code><span class="tx">failed tx · <a href={txUrl(run.refusals.edited.tx)}>{short(run.refusals.edited.tx)}</a> · testnet</span></li>
+                <li data-refusal="2"><span>The shopper claims a second time</span><code>{run.refusals.again.error}</code></li>
+              </ol>
+            </div>
+            <svg class="still" viewBox={STORY_VIEWBOX} role="img" aria-label={stillAlt[3]} set:html={stills[3]} />
+          </li>
+          <li class="beat">
+            <div class="beat-text">
+              <p class="state">05 · <b>Cap</b> · order {B.id}</p>
+              <h3>A misconfigured bot promises {pct(B.tokenBps)}%. <span class="g">The contract pays {pct(B.paidBps)}%.</span></h3>
+              <div class="chat">
+                <p class="msg user"><span class="who">Shopper</span>{B.message}</p>
+                <code class="tokenline">{B.token}</code>
+              </div>
+              <p>This shop's own prompt allowed 10000 bps and said the customer is always right. A misconfigured prompt, not a jailbreak: the same message got 0 of 3 against the honest prompt. The on-chain <code>max_bps {B.maxBps}</code> caps the payout at {fmt(B.paid)}.</p>
+              <p class="tx">claim · <a href={txUrl(B.claimTx)}>{short(B.claimTx)}</a> · token_bps {B.tokenBps}, paid_bps {B.paidBps} · testnet</p>
+            </div>
+            <svg class="still" viewBox={STORY_VIEWBOX} role="img" aria-label={stillAlt[4]} set:html={stills[4]} />
+          </li>
+        </ol>
+
+        <div class="story-vis" aria-hidden="true">
+          <div class="vis-top"><span>Order <b data-out="order">{A.id}</b> · {A.amount} {T} · max_bps {A.maxBps}</span><span class="legend"><i class="k-res"></i>reserved <i class="k-pro"></i>promised <i class="k-paid"></i>paid out</span></div>
+          <canvas></canvas>
+          <div class="vis-bottom"><span class="chip" data-out="chip" data-kind="none">NOT A PROMISE</span><span>Reserved <b data-out="reserved">0 {T}</b></span><span>Paid <b data-out="paid">0 {T}</b></span></div>
+        </div>
+
+        <ol class="story-ticks" aria-label="Jump to a step">
+          {beats.map((b, i) => <li><button type="button" aria-label={`${String(i + 1).padStart(2, '0')} ${b.tick}`}>{String(i + 1).padStart(2, '0')}<span>&nbsp;{b.tick}</span></button></li>)}
+        </ol>
+      </div>
+    </div>
+
+    <div class="story-note">
+      <p>Receipts, orders, claim results and transaction hashes are recorded chain data. The BINDING state before each claim and the edited-bytes result are recomputed from the recorded bytes by a JavaScript mirror of the contract's rules (the recorder ran after both claims), and are marked recomputed. This run was recorded on the previous v2 build; a fresh {T} claim and its failure cases were re-run on the redeployed build on 2026-11-11.</p>
+    </div>
+  </section>
+
+  <!-- Verify in the browser -->
+  <section class="band verify" id="verify" aria-labelledby="h-verify" data-verify data-bundle={JSON.stringify(v)}>
+    <div class="band-head">
+      <p class="label">Check it yourself</p>
+      <h2 id="h-verify">Your browser checks the signature. <span class="g">Change one character and it fails.</span></h2>
+      <p>This is the recorded reply for order {v.orderId}, byte for byte as the TEE returned it. The page hashes the bytes with SHA-256 and verifies the Ed25519 signature with WebCrypto, in this browser.</p>
+    </div>
+    <div class="verify-grid">
+      <article class="card v-reply">
+        <p class="label plain">Reply bytes · order {v.orderId}</p>
+        <p class="msg" data-v="reply">{A.reply}</p>
+        <code class="tokenline" data-v="token">{A.token}</code>
+        <div class="v-actions">
+          <button class="btn" type="button" data-act="edit" aria-pressed="false">Edit 2000 → 3000</button>
+          <button class="btn" type="button" data-act="forge" aria-pressed="false" disabled>Also rewrite the signed hash</button>
+          <button class="btn" type="button" data-act="reset" disabled>Reset</button>
+        </div>
+      </article>
+      <div class="card" aria-live="polite">
+        <div class="v-rows">
+          <div class="v-row" data-v="row-hash" data-state="na">
+            <h3>1 · sha256(reply bytes) equals the signed hash</h3>
+            <span class="v-res">RECORDED</span>
+            <dl><dt>computed</dt><dd data-v="computed">{short(v.responseHash)}</dd><dt>signed</dt><dd data-v="claimed">{short(v.responseHash)}</dd></dl>
+          </div>
+          <div class="v-row" data-v="row-sig" data-state="na">
+            <h3>2 · Ed25519 signature over the signed text</h3>
+            <span class="v-res">RECORDED</span>
+            <dl><dt>key</dt><dd>{short(v.publicKeyHex)}</dd><dt>text</dt><dd data-v="signed">{v.model}:{short(v.requestHash)}:{short(v.responseHash)}</dd></dl>
+          </div>
+        </div>
+        <div class="v-verdict" data-v="verdict" data-state="na">
+          <span class="label plain">Result in this browser</span>
+          <span class="v-res">NOT CHECKED HERE</span>
+          <p data-v="explain">Without JavaScript nothing is checked on this page. <code>npm run verify:fixtures</code> runs the same check locally.</p>
+        </div>
+      </div>
+    </div>
+    <p class="v-not"><b>What this does not prove.</b> It shows that these bytes are the ones the key signed. It does not read the chain, does not show that the key belongs to a NEAR AI TEE, and does not re-check the TDX quote. On chain, the key is registered with the sha256 of its attestation record, which the operator's <code>npm run attest</code> checked off chain.</p>
+  </section>
+
+  <!-- What NEAR does -->
+  <section class="band" id="near" aria-labelledby="h-near">
+    <div class="band-head">
+      <p class="label">What NEAR does here</p>
+      <h2 id="h-near">The contract enforces the payout and its cap. <span class="g">The shop chooses what to register, the cap and each order's expiry.</span></h2>
+    </div>
+    <div class="bento">
+      <article class="card w7">
+        <p class="n">01</p>
+        <h3>Signature checked on chain</h3>
+        <p><code>register_receipt</code> runs <code>env::ed25519_verify</code> on the TEE signature over the model id and the sha256 of the request and response bytes. An edited reply fails with <code>ERR_BAD_SIGNATURE</code>.</p>
+        <code class="tokenline">z-ai/glm-5.3-flash:sha256(request bytes):sha256(response bytes)</code>
+      </article>
+      <article class="card w5">
+        <p class="n">02</p>
+        <h3>The cap is the shop's own</h3>
+        <p><code>claim</code> pays <code>min(bps, max_bps)</code> × the order amount from the bond, once per order.</p>
+        <code class="tokenline">min({B.tokenBps}, {B.maxBps}) = {B.paidBps}</code>
+      </article>
+      <article class="card w5">
+        <p class="n">03</p>
+        <h3>Money set aside first</h3>
+        <p>The cap is reserved from the bond when the order is created. The shop cannot withdraw it until the order expires and anyone releases it.</p>
+      </article>
+      <article class="card w7">
+        <p class="n">04</p>
+        <h3>Keys that can do one thing</h3>
+        <p>The shop's bot server holds a function-call key that can call only <code>register_receipt</code>. The shopper's demo key can call only <code>claim</code>. The money methods need exactly 1 yoctoNEAR, so no function-call key can call them.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- Limits -->
+  <section class="band" id="limits" aria-labelledby="h-limits">
+    <div class="band-head">
+      <p class="label">Trust and limits</p>
+      <h2 id="h-limits">What this is not. <span class="g">None of it is small print.</span></h2>
+    </div>
+    <ol class="limits">
+      <li><span class="n">01</span><h3>NEAR testnet only</h3><p>Everything runs on testnet. Nothing is deployed on mainnet.</p></li>
+      <li><span class="n">02</span><h3>tUSDC is a mock token</h3><p>This team deployed it. It is not a real stablecoin and has no backing; its source is not in this repository.</p></li>
+      <li><span class="n">03</span><h3>Not trustless</h3><p>Each contract account and the mock token holds one full-access key. Whoever holds it could redeploy the code and move bonds. The deployed code has no method that does this, but the account can still be redeployed.</p></li>
+      <li><span class="n">04</span><h3>The shop must register the reply</h3><p>A reply the shop does not register is NOT A PROMISE. The signature stops the shop from editing a reply, not from ignoring it.</p></li>
+      <li><span class="n">05</span><h3>The shop sets the expiry</h3><p>On v2 a promise is claimable until the order's expiry, which the shop chooses. On this deployment the minimum is 2 minutes; the demo orders use 30.</p></li>
+      <li><span class="n">06</span><h3>Attestation is checked off chain</h3><p>The contract cannot verify a TDX quote. It trusts the owner's signer list; only the sha256 of the attestation record is on chain.</p></li>
+      <li><span class="n">07</span><h3>The demo badge is the shop's page</h3><p>In the demo app the BINDING badge reads the RPC and contract that the shop's server names. It is independent of the shop only when you run <code>npm run verify</code> yourself.</p></li>
+      <li><span class="n">08</span><h3>Not private</h3><p>A claim puts the reply bytes on chain, so a claimed conversation is public.</p></li>
+      <li><span class="n">09</span><h3>The 100% beat is a misconfigured prompt</h3><p>Not a jailbreak of a well-configured bot. It shows the on-chain cap, nothing more.</p></li>
+      <li><span class="n">10</span><h3>Built by AI agents</h3><p>Almost entirely, under the direction of Samet. The audit was an AI review, and no human has done a browser check.</p></li>
+    </ol>
+  </section>
+
+  <!-- Try -->
+  <section class="band" id="try" aria-labelledby="h-try">
+    <div class="band-head">
+      <p class="label">Try it</p>
+      <h2 id="h-try">Two minutes, no keys, no Rust. <span class="g">Run it from the repository.</span></h2>
+      <p>{REPO ? <>Clone <a href={REPO}>the repository</a>, then run these in its root.</> : 'Source will be linked here when the repository is public. Run these in its root.'}</p>
+    </div>
+    <div class="try-grid">
+      <ol class="steps">
+        {REPO && <li class="step"><span class="n">00</span><code>git clone {REPO}</code><button class="copy" type="button" data-copy={`git clone ${REPO}`} hidden>Copy</button></li>}
+        {steps.map((s, i) => (
+          <li class="step"><span class="n">{String(i + 1).padStart(2, '0')}</span><code>{s.cmd}</code><button class="copy" type="button" data-copy={s.cmd} hidden aria-label={`Copy ${s.cmd}`}>Copy</button><p set:html={s.out} /></li>
+        ))}
+      </ol>
+      <dl class="card facts">
+        <div><dt>Contract (v2)</dt><dd>{run.contract}</dd></div>
+        <div><dt>Mock token</dt><dd>sm1110-tusdc.testnet ({T}, 6 decimals)</dd></div>
+        <div><dt>Shop · shopper</dt><dd>cbp-shop-sm1110.testnet · cbp-alice-sm1110.testnet</dd></div>
+        <div><dt>Bot model</dt><dd>NEAR AI Cloud {v.model}</dd></div>
+        <div><dt>TEE signer (ed25519)</dt><dd>{short(v.publicKeyHex)}, valid until 2026-11-30 10:45 UTC</dd></div>
+        <div><dt>Attestation record sha256</dt><dd>520bedd1…6a65</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="band footer">
+    <div class="field pix" data-field aria-hidden="true"><canvas></canvas></div>
+    <div class="footer-grid">
+      <div>
+        <p><b>{title}</b></p>
+        <p>Built at NEAR HACKATHON (2026-11) by Samet. MIT licence.</p>
+        <p>{REPO ? <a href={REPO}>Source on GitHub</a> : 'Source will be linked here when the repository is public.'}</p>
+        <p>Also by Samet: ZeroInit, an independent project.</p>
+      </div>
+      <div class="small">
+        <p>NEAR testnet only. Not audited: the audit rounds were AI reviews. tUSDC is a mock token with no value.</p>
+        <p style="margin-top:10px">Design after monochrome pixel concept shots by a pixel-art concept: principles only, every visual on this page is drawn by its own code. Type: Geist and Geist Mono, SIL OFL 1.1.</p>
+      </div>
+    </div>
+  </footer>
+
+</div>
+</main>
+<script>
+  import '../scripts/main.ts';
+</script>
+</body>
+</html>
