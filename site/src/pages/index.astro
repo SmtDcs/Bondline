@@ -69,7 +69,7 @@ const description = "If a shop's AI support bot promises you a refund, you can c
   {SITE && <meta property="og:image" content={`${SITE.replace(/\/$/, '')}/og.png`} />}
   {SITE && <meta property="og:url" content={SITE} />}
   <meta name="twitter:card" content="summary_large_image" />
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/favicon.svg`} type="image/svg+xml" />
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>

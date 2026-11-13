@@ -6,6 +6,8 @@
 
 > Status: a NEAR **testnet** prototype. A promise is claimable only if the shop registers the signed reply, and (on v2) only until the order's expiry, which the shop sets. All limits are listed under [Limits and trust](#limits-and-trust).
 
+Project page: **https://smtdcs.github.io/claimable-bot-promises/**
+
 ## Try it in 2 minutes (no keys, no Rust)
 
 Needs Node 22.22.2+ (24 recommended, `.nvmrc`). No `.env`, no keys.
