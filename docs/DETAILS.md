@@ -1,6 +1,6 @@
 # Technical details
 
-Reference material behind the README: the verify tool, the replay, the deployment, both contract surfaces, the recorded
+Covers the verify tool, the replay, the deployment, both contract surfaces, the recorded
 runs and the data in this repository.
 
 ## `npm run verify`
