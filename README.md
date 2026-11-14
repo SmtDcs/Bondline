@@ -8,7 +8,13 @@ Runs on NEAR testnet
 
 ![A capped promise claimed in tUSDC on testnet](docs/screenshots/live-v2-claimed.png)
 
-Site: https://smtdcs.github.io/Bondline/
+## NEAR HACKATHON submission
+
+- **Tracks:** AI Security & Defense (`security`) and Real-World Money (`realworld`). Why it fits each: [docs/JUDGES.md](docs/JUDGES.md#track-fit).
+- **Demo video:** https://x.com/SameTether/status/2121714532779503682
+- **Site:** https://smtdcs.github.io/Bondline/
+- **Judge walkthrough:** [docs/JUDGES.md](docs/JUDGES.md)
+- **New work only:** all code in this repository was written during NEAR HACKATHON, from the first commit on 2026-11-10 onward. There is no pre-hackathon code. The signature-check pattern follows [tee-receipts](https://github.com/tmdry4530/tee-receipts) (MIT); one of its real NEAR AI ECDSA receipts is used as a test vector, and no code was copied.
 
 ## Quick start
 
@@ -20,7 +26,12 @@ npm run verify:fixtures   # checks every recorded receipt offline
 npm run demo:replay:v2    # open http://127.0.0.1:8787/?offline=1
 ```
 
-The replay serves a recorded testnet run and sends nothing to the chain.
+What you should see:
+
+- `npm run verify:fixtures` prints one `PASS` line per bundle and ends with:
+  `ALL VERIFIED (11 real bundles + 3 tampered (correctly rejected) + 5 refused (self-made or wrong-buyer requests: no valid shop authorization) + 2 SIMULATED (fake key, not TEE evidence))`
+- `npm run demo:replay:v2` serves a recorded testnet run and sends nothing to the chain. At http://127.0.0.1:8787/?offline=1 you click through the demo: the bot promises 20% on a $20 order (`PROMISE|refund|order=A123-…|bps=2000`), the page shows the receipt as BINDING with 4 tUSDC claimable, and Claim pays it. A misconfigured bot that promises 100% is paid only up to the 30% cap (6 tUSDC), and edited or repeated claims are refused (`ERR_NO_RECEIPT_FOR_BYTES`, `ERR_BAD_SIGNATURE`, `ERR_ALREADY_CLAIMED`).
+- `npm run test:js` ends with `# fail 0` (275 tests).
 
 ## How it works
 
@@ -34,7 +45,7 @@ shopper ── chat ──▶ shop server ── exact bytes ──▶ NEAR AI (
                         └── register_receipt ──▶ market contract ◀── claim ── shopper
 ```
 
-Full diagram and request flow: [docs/HACKATHON.md](docs/HACKATHON.md#how-it-works).
+Full diagram and request flow: [docs/JUDGES.md](docs/JUDGES.md#how-it-works).
 
 ## Contract versions
 
@@ -86,13 +97,14 @@ Running live needs your own testnet accounts and a NEAR AI Cloud key: see [docs/
 - The shop sets each order's expiry, and a promise must be claimed before it.
 - Claiming publishes the reply bytes on chain.
 - On v3 the shop's server is still the only source of the exact reply bytes; a server that withholds them can't be forced to hand them over.
+- v3 (customer-registered receipts) has no offline replay; verify it with `npm run verify:live-run:v3`, which re-reads the recorded v3 transactions from the testnet RPC.
 - The current TEE signer expires 2026-11-30 10:45 UTC and must be renewed for new receipts.
 
 Details: [docs/V3.md](docs/V3.md#trust-on-v3), [docs/DETAILS.md](docs/DETAILS.md).
 
 ## Docs
 
-[DETAILS.md](docs/DETAILS.md) covers the verify tool, replay, deployment and recorded runs; [V3.md](docs/V3.md) the customer-registered receipts; [STABLECOIN.md](docs/STABLECOIN.md) the v2 design; [INTERFACES.md](docs/INTERFACES.md) the v1 interface; [DEPLOY.md](docs/DEPLOY.md) deploying your own copy; [PROMPT-TESTS.md](docs/PROMPT-TESTS.md) the bot prompt tests; and [HACKATHON.md](docs/HACKATHON.md) the judge walkthrough, demo script and trust boundaries.
+[DETAILS.md](docs/DETAILS.md) covers the verify tool, replay, deployment and recorded runs; [V3.md](docs/V3.md) the customer-registered receipts; [STABLECOIN.md](docs/STABLECOIN.md) the v2 design; [INTERFACES.md](docs/INTERFACES.md) the v1 interface; [DEPLOY.md](docs/DEPLOY.md) deploying your own copy; [PROMPT-TESTS.md](docs/PROMPT-TESTS.md) the bot prompt tests; and [JUDGES.md](docs/JUDGES.md) the judge walkthrough, demo script and trust boundaries.
 
 ## Credits
 
