@@ -107,3 +107,7 @@ near-sdk 5.30.1, near-contract-standards 5.30.1, hex 0.4.3 (Rust); near-api-js 7
 ## License
 
 MIT
+
+## Other project by the same builder
+
+I am also submitting **Rolet NEAR** to NEAR HACKATHON, a separate and independent project: a turn-based revolver duel whose match rules, deck and leaderboard run in a NEAR smart contract. Repo: https://github.com/SmtDcs/rolet-near
